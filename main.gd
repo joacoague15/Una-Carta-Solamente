@@ -5,11 +5,32 @@ class_name Level1
 @export var rows := 5
 @export var cell_size := Vector2i(96, 96)
 
-const P_STATS = { "hp": 6, "mv": 4, "atk": 2, "def": 2, "rng": 2 }
+const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
 const E_STATS = { "hp": 2, "mv": 3, "atk": 1, "def": 1, "rng": 2 }
 
 var astar := AStarGrid2D.new()
+var rng := RandomNumberGenerator.new()
 
+# --- DRAFT / DADOS ---
+var is_drafting := true
+var draft_dice: Array[int] = []
+var draft_assign_idx := {"mv": -1, "atk": -1, "def": -1} # guarda índices 0..2 de draft_dice
+var draft_selected_die := -1
+
+func _roll_dice() -> void:
+	draft_dice = [rng.randi_range(1, 6), rng.randi_range(1, 6), rng.randi_range(1, 6)]
+	draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
+	draft_selected_die = -1
+	is_drafting = true
+	queue_redraw()
+
+func _all_assigned() -> bool:
+	return draft_assign_idx["mv"] != -1 and draft_assign_idx["atk"] != -1 and draft_assign_idx["def"] != -1
+
+func _die_assigned(idx:int) -> bool:
+	return draft_assign_idx["mv"] == idx or draft_assign_idx["atk"] == idx or draft_assign_idx["def"] == idx
+
+# --- tablero/estado ---
 func rc(row:int, col:int) -> Vector2i:
 	return Vector2i(col - 1, row - 1)
 
@@ -95,8 +116,30 @@ func _adjacent_cells(c: Vector2i) -> Array[Vector2i]:
 func _manhattan(a: Vector2i, b: Vector2i) -> int:
 	return abs(a.x - b.x) + abs(a.y - b.y)
 
+# movimiento: orto=2, diag=3
+func _move_cost(a: Vector2i, b: Vector2i) -> int:
+	var dx = abs(a.x - b.x)
+	var dy = abs(a.y - b.y)
+	if dx + dy == 1: return 2
+	if dx == 1 and dy == 1: return 3
+	return -1
+
+# alcance: misma métrica 2/3, ignora obstáculos (si querés LOS, integramos después)
+func _reach_cost(a: Vector2i, b: Vector2i) -> int:
+	var dx = abs(a.x - b.x)
+	var dy = abs(a.y - b.y)
+	var diag = min(dx, dy)
+	var orto = abs(dx - dy)
+	return diag * 3 + orto * 2
+
+func _can_attack(attacker: Dictionary, target_pos: Vector2i) -> bool:
+	return _reach_cost(attacker["pos"], target_pos) <= int(attacker["rng"])
+
 # --- setup ---
 func _ready() -> void:
+	rng.randomize()
+	_roll_dice()  # mostrar UI de dados al inicio
+
 	_init_astar()
 	_update_astar_solid_tiles()
 	_layout_board()
@@ -129,32 +172,15 @@ func _update_astar_solid_tiles() -> void:
 	astar.set_point_solid(player["pos"], true)
 	for e in enemies:
 		astar.set_point_solid(e["pos"], true)
-		
-func _move_cost(a: Vector2i, b: Vector2i) -> int:
-	var dx = abs(a.x - b.x)
-	var dy = abs(a.y - b.y)
-	# adyacente ortogonal
-	if dx + dy == 1:
-		return 2
-	# adyacente diagonal
-	if dx == 1 and dy == 1:
-		return 3
-	# no es adyacente
-	return -1
-
-# Costo de alcance (igual a movimiento: diag=3, orto=2)
-func _reach_cost(a: Vector2i, b: Vector2i) -> int:
-	var dx = abs(a.x - b.x)
-	var dy = abs(a.y - b.y)
-	var diag = min(dx, dy)
-	var orto = abs(dx - dy)
-	return diag * 3 + orto * 2
-	
-func _can_attack(attacker: Dictionary, target_pos: Vector2i) -> bool:
-	return _reach_cost(attacker["pos"], target_pos) <= int(attacker["rng"])
 
 # --- input / turns ---
 func _input(event: InputEvent) -> void:
+	# Primero, si estamos en la UI de dados, consumimos el input ahí.
+	if is_drafting:
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_handle_draft_click(to_local(get_viewport().get_mouse_position()))
+		return
+
 	if phase != Phase.PLAYER:
 		return
 
@@ -170,24 +196,19 @@ func _on_player_click(cell: Vector2i) -> void:
 	# ¿click a un enemigo?
 	var idx := _enemy_index_at(cell)
 	if idx != -1:
-		# ¿está al alcance según el rango? (usa puntos 2/3)
 		if _can_attack(player, enemies[idx]["pos"]):
 			_player_attack(idx)
-			moves_left = 0  # o moves_left -= 1 si querés que cueste punto de acción
+			moves_left = 0
 			_update_astar_solid_tiles()
 			queue_redraw()
 			_end_player_turn()
-		# si no está al alcance, no hace nada
 		return
 
-	# Si es celda vacía: sólo permitir mover adyacente y con puntos suficientes
+	# Si es celda vacía: sólo adyacente y con puntos suficientes
 	var cost := _move_cost(player["pos"], cell)
-	if cost == -1:
-		return  # no es adyacente (ni orto ni diag)
-	if _is_blocked(cell):
-		return
-	if moves_left < cost:
-		return
+	if cost == -1: return
+	if _is_blocked(cell): return
+	if moves_left < cost: return
 
 	player["pos"] = cell
 	moves_left -= cost
@@ -215,68 +236,189 @@ func _end_player_turn() -> void:
 	queue_redraw()
 
 func _enemy_phase() -> void:
-	# 1) cada enemigo intenta acercarse, gastando su "mv" en pasos de 2/3
+	# 1) mover con presupuesto (2/3 por paso) hacia adyacencia
 	for i in enemies.size():
 		var budget := int(enemies[i]["mv"])
 		if budget < 2:
-			continue  # no le alcanza ni para un paso ortogonal
+			continue
 
 		_update_astar_solid_tiles()
 		astar.set_point_solid(enemies[i]["pos"], false)
 
-		# si ya está adyacente, no camina
 		if _manhattan(enemies[i]["pos"], player["pos"]) != 1:
-			# objetivos: celdas ortogonalmente adyacentes al player que no estén bloqueadas
 			var goals := _adjacent_cells(player["pos"]).filter(
 				func(c): return _is_inside(c) and not _is_blocked_for_enemy(c, i)
 			)
 			if goals.is_empty():
-				goals = [player["pos"]]  # fallback
-
-			# mejor path a alguna goal
+				goals = [player["pos"]]
 			var best_path := []
 			for g in goals:
 				var p := astar.get_id_path(enemies[i]["pos"], g)
-				if p.is_empty():
-					continue
+				if p.is_empty(): continue
 				if best_path.is_empty() or p.size() < best_path.size():
 					best_path = p
-
-			# avanzar paso a paso mientras alcance el budget
 			if not best_path.is_empty():
 				var curr = enemies[i]["pos"]
 				for step_idx in range(1, best_path.size()):
-					var nxt : Vector2i = best_path[step_idx]
-					# por si otro enemigo se metió: chequeo de bloqueo dinámico
-					if _is_blocked_for_enemy(nxt, i):
-						break
-
+					var nxt: Vector2i = best_path[step_idx]
+					if _is_blocked_for_enemy(nxt, i): break
 					var step_cost := _move_cost(curr, nxt)
-					if step_cost == -1 or budget < step_cost:
-						break
-
+					if step_cost == -1 or budget < step_cost: break
 					curr = nxt
 					budget -= step_cost
 					enemies[i]["pos"] = curr
-					# si ya quedó adyacente, podés cortar
 					if _manhattan(enemies[i]["pos"], player["pos"]) == 1:
 						break
-
 		_update_astar_solid_tiles()
 
-	# 2) daño combinado de todos los enemigos cuyo alcance (2/3) llegue al player
+	# 2) daño combinado por alcance (2/3)
 	var total_atk := 0
 	for e in enemies:
 		if _can_attack(e, player["pos"]):
 			total_atk += int(e["atk"])
-
 	if total_atk > 0:
 		var def_val = max(1, int(player["def"]))
 		var dmg := int(floor(float(total_atk) / float(def_val)))
 		player["hp"] -= dmg
-
 	if player["hp"] <= 0:
 		print("Player defeated")
+
+# --- DRAFT UI (dibujado + clicks) ---
+func _draft_layout() -> Dictionary:
+	# Layout base en coordenadas locales del tablero
+	var pad := 12.0
+	var die_size := Vector2(64, 64)
+	var spacing := 12.0
+	var base := Vector2(pad, pad)
+	var die_rects: Array[Rect2] = []
+	for i in 3:
+		die_rects.append(Rect2(base + Vector2((die_size.x + spacing) * i, 0), die_size))
+	var slot_size := Vector2(120, 36)
+	var slots := {
+		"mv": Rect2(base + Vector2(0, die_size.y + 20), slot_size),
+		"atk": Rect2(base + Vector2(130, die_size.y + 20), slot_size),
+		"def": Rect2(base + Vector2(260, die_size.y + 20), slot_size),
+	}
+	var confirm_rect := Rect2(base + Vector2(0, die_size.y + 20 + 48), Vector2(140, 36))
+	var panel_rect := Rect2(Vector2.ZERO, Vector2(cols * cell_size.x, rows * cell_size.y))
+	return {
+		"die_rects": die_rects,
+		"slots": slots,
+		"confirm": confirm_rect,
+		"panel": panel_rect
+	}
+
+func _handle_draft_click(local_pos: Vector2) -> void:
+	var L := _draft_layout()
+	# Click en dados
+	for i in draft_dice.size():
+		if L["die_rects"][i].has_point(local_pos):
+			# si ese dado ya estaba asignado a un slot, lo “desasignamos”
+			if _die_assigned(i):
+				for k in draft_assign_idx.keys():
+					if draft_assign_idx[k] == i:
+						draft_assign_idx[k] = -1
+						break
+			draft_selected_die = i
+			queue_redraw()
+			return
+
+	# Click en slots
+	for k in ["mv","atk","def"]:
+		var r: Rect2 = L["slots"][k]
+		if r.has_point(local_pos):
+			# si el slot ya tenía un dado y no hay selección, levantamos ese dado
+			if draft_selected_die == -1 and draft_assign_idx[k] != -1:
+				draft_selected_die = draft_assign_idx[k]
+				draft_assign_idx[k] = -1
+			# si hay un dado seleccionado, lo ponemos aquí (si estaba en otro slot, se mueve)
+			elif draft_selected_die != -1:
+				# quitar de cualquier otro slot
+				for kk in draft_assign_idx.keys():
+					if draft_assign_idx[kk] == draft_selected_die:
+						draft_assign_idx[kk] = -1
+				draft_assign_idx[k] = draft_selected_die
+				draft_selected_die = -1
+			queue_redraw()
+			return
+
+	# Click en Confirmar
+	var can_confirm := _all_assigned()
+	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
+		# aplicar stats: el valor del stat = valor del dado asignado
+		player["mv"]  = draft_dice[draft_assign_idx["mv"]]
+		player["atk"] = draft_dice[draft_assign_idx["atk"]]
+		player["def"] = draft_dice[draft_assign_idx["def"]]
+		player["rng"] = 2  # rango fijo
+
+		moves_left = player["mv"]
+		is_drafting = false
+		_update_astar_solid_tiles()
+		queue_redraw()
+		return
+
+func _draw_draft_ui() -> void:
+	var L := _draft_layout()
+	# fondo semitransparente sobre el tablero
+	draw_rect(L["panel"], Color(0,0,0,0.35), true)
+
+	var font := ThemeDB.fallback_font
+	var fs := 16
+
+	# título
+	var title := "Asigná los dados a MV / ATK / DEF"
+	var title_size := font.get_string_size(title, fs)
+	draw_string(font, Vector2(12, -8 + fs + 12), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+
+	# dados
+	for i in draft_dice.size():
+		var r: Rect2 = L["die_rects"][i]
+		var is_assigned := _die_assigned(i)
+		var is_selected := (draft_selected_die == i)
+		if is_selected:
+			draw_rect(r, Color(0.25,0.5,1,1), true)
+		else:
+			draw_rect(r, Color(0.2,0.2,0.2,1), true)
+		
+		draw_rect(r, Color(1,1,1,1), false, 2.0)
+		var txt := str(draft_dice[i])
+		var ts := font.get_string_size(txt, fs)
+		var pos := r.position + (r.size - ts) * 0.5 + Vector2(0, fs*0.2)
+		var col
+		if is_assigned:
+			col = Color(0.8,0.8,0.8,0.7)
+		else:
+			col = Color(1,1,1,1)	
+		
+		draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+	# slots
+	for k in ["mv","atk","def"]:
+		var r2: Rect2 = L["slots"][k]
+		var label := String(k).to_upper()
+		var idx = draft_assign_idx[k]
+		var txt
+		
+		if idx == -1:
+			txt = label + ": —"
+		else:
+			txt =  label + ": " + str(draft_dice[idx])
+		
+		draw_rect(r2, Color(0.1,0.1,0.1,1), true)
+		draw_rect(r2, Color(1,1,1,1), false, 2.0)
+		draw_string(font, r2.position + Vector2(8, r2.size.y*0.6), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+
+	# botón confirmar
+	var can_confirm := _all_assigned()
+	var rc: Rect2 = L["confirm"]
+	
+	if can_confirm:
+		draw_rect(rc, Color(0.15,0.45,0.15,1), true)
+	else:
+		draw_rect(rc, Color(0.2,0.2,0.2,1), true)
+		
+	draw_rect(rc, Color(1,1,1,1), false, 2.0)
+	draw_string(font, rc.position + Vector2(8, rc.size.y*0.6), "Confirmar", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 # --- drawing ---
 func _draw() -> void:
@@ -292,18 +434,21 @@ func _draw() -> void:
 		var rr := Rect2(Vector2(p) * Vector2(cell_size), Vector2(cell_size))
 		draw_rect(rr, Color(0.35,0.35,0.4,1.0), true)
 
-	# Player + etiqueta
+	# unidades con etiquetas
 	var player_label := "HP:%d MV:%d ATK:%d DEF:%d RNG:%d" % [
 		player["hp"], player["mv"], player["atk"], player["def"], player["rng"]
 	]
 	_draw_unit_with_label(player["pos"], Color(0.2,0.8,1.0,1.0), player_label)
 
-	# Enemigos + etiqueta
 	for e in enemies:
 		var enemy_label := "%s  HP:%d ATK:%d DEF:%d RNG:%d" % [
 			e["name"], e["hp"], e["atk"], e["def"], e["rng"]
 		]
 		_draw_unit_with_label(e["pos"], Color(1.0,0.35,0.35,1.0), enemy_label)
+
+	# UI de dados encima
+	if is_drafting:
+		_draw_draft_ui()
 
 func _draw_unit_with_label(cell: Vector2i, col: Color, label_text: String) -> void:
 	var r := Rect2(Vector2(cell) * Vector2(cell_size), Vector2(cell_size))
@@ -317,12 +462,10 @@ func _draw_unit_label(cell_rect: Rect2, text: String, is_top_row: bool=false) ->
 	var fs := 14
 	var pad := Vector2(6, 4)
 	var text_size: Vector2 = font.get_string_size(text, fs)
-
 	var top_left_x := cell_rect.position.x + (cell_rect.size.x - text_size.x) * 0.5
 	var top_left_y := cell_rect.position.y - fs - 6
 	if is_top_row and top_left_y < 0.0:
 		top_left_y = cell_rect.position.y + cell_rect.size.y + 6
-
 	var bg_rect := Rect2(Vector2(top_left_x, top_left_y) - pad, text_size + pad * 2.0)
 	draw_rect(bg_rect, Color(0,0,0,0.6), true)
 	var baseline := top_left_y + fs
