@@ -2,7 +2,10 @@ extends Node2D
 class_name Level1
 
 @onready var PlayerScene := preload("res://Player.tscn")
+@onready var EnemyScene := preload("res://Enemy.tscn")
+
 var player_node: Player
+var enemy_nodes: Array[Enemy] = []
 
 @export var cols := 4
 @export var rows := 5
@@ -153,10 +156,22 @@ func _ready() -> void:
 	_update_astar_solid_tiles()
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	queue_redraw()
+	
+	for e in enemies:
+		var n: Enemy = EnemyScene.instantiate()
+		add_child(n)
+		
+		n.set_cell(e["pos"], cell_size, false)
+		enemy_nodes.append(n)
 
 func _sync_player_sprite(animate: bool = true) -> void:
 	if player_node:
 		player_node.set_cell(player["pos"], cell_size, animate)
+		
+func _sync_enemy_sprites(animate: bool = true) -> void:
+	var count = min(enemy_nodes.size(), enemies.size())
+	for i in count:
+		enemy_nodes[i].set_cell(enemies[i]["pos"], cell_size, animate)
 
 func _on_viewport_resized() -> void:
 	_layout_board()
@@ -213,7 +228,7 @@ func _on_player_click(cell: Vector2i) -> void:
 			player["pos"] = cell
 			moves_left = 0
 			_update_astar_solid_tiles()
-			_sync_player_sprite(false)
+			_sync_player_sprite()
 			queue_redraw()
 			_end_player_turn()
 		return
@@ -238,13 +253,20 @@ func _player_attack(enemy_index:int) -> void:
 	var dmg = max(0, player["atk"] - e["def"])
 	e["hp"] -= dmg
 	if e["hp"] <= 0:
+		# eliminar data y sprite en el mismo índice
 		enemies.remove_at(enemy_index)
+		var node := enemy_nodes[enemy_index]
+		enemy_nodes.remove_at(enemy_index)
+		if is_instance_valid(node):
+			node.queue_free()
 	_update_astar_solid_tiles()
+	_sync_enemy_sprites(false) # reacomoda índices por si quedaron corridos
 	queue_redraw()
 
 func _end_player_turn() -> void:
 	phase = Phase.ENEMIES
 	_enemy_phase()
+	_sync_enemy_sprites(true)
 	phase = Phase.PLAYER
 	moves_left = player["mv"]
 	_update_astar_solid_tiles()
