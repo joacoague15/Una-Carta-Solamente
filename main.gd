@@ -225,7 +225,6 @@ func _on_player_click(cell: Vector2i) -> void:
 	if idx != -1:
 		if _can_attack(player, enemies[idx]["pos"]):
 			_player_attack(idx)
-			player["pos"] = cell
 			moves_left = 0
 			_update_astar_solid_tiles()
 			_sync_player_sprite()
@@ -493,7 +492,6 @@ func _draw_unit_with_label(cell: Vector2i, col: Color, label_text: String) -> vo
 	var r := Rect2(Vector2(cell) * Vector2(cell_size), Vector2(cell_size))
 	var inset := 8.0
 	var rr := Rect2(r.position + Vector2(inset, inset), r.size - Vector2(2*inset, 2*inset))
-	draw_rect(rr, col, true)
 	_draw_unit_label(r, label_text, cell.y == 0)
 
 func _draw_unit_label(cell_rect: Rect2, text: String, is_top_row: bool=false) -> void:

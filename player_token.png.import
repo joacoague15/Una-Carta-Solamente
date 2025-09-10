@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://nvlg8u0n3kcv"
-path="res://.godot/imported/paladin_token.png-82b10de9a2e3ee48aaf3272e5dd3a71f.ctex"
+uid="uid://b8xorex1nf8r7"
+path="res://.godot/imported/player_token.png-1c3c3decea866ebcfd580bc00dba95a9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://paladin_token.png"
-dest_files=["res://.godot/imported/paladin_token.png-82b10de9a2e3ee48aaf3272e5dd3a71f.ctex"]
+source_file="res://player_token.png"
+dest_files=["res://.godot/imported/player_token.png-1c3c3decea866ebcfd580bc00dba95a9.ctex"]
 
 [params]
 

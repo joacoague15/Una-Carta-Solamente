@@ -1,10 +1,10 @@
 [gd_scene load_steps=3 format=3 uid="uid://wb7q5nloidu5"]
 
 [ext_resource type="Script" path="res://player.gd" id="1_voowp"]
-[ext_resource type="Texture2D" uid="uid://nvlg8u0n3kcv" path="res://paladin_token.png" id="2_0ck3e"]
+[ext_resource type="Texture2D" uid="uid://b8xorex1nf8r7" path="res://player_token.png" id="2_plaxi"]
 
 [node name="Player" type="Node2D"]
 script = ExtResource("1_voowp")
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
-texture = ExtResource("2_0ck3e")
+texture = ExtResource("2_plaxi")
