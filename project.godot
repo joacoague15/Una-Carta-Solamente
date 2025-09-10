@@ -11,5 +11,5 @@ config_version=5
 [application]
 
 config/name="Una Carta Solamente"
-run/main_scene="uid://b206ltc27s43y"
-config/features=PackedStringArray("4.4", "Forward Plus")
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")

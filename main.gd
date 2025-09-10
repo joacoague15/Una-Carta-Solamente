@@ -1,6 +1,9 @@
 extends Node2D
 class_name Level1
 
+@onready var PlayerScene := preload("res://Player.tscn")
+var player_node: Player
+
 @export var cols := 4
 @export var rows := 5
 @export var cell_size := Vector2i(96, 96)
@@ -137,14 +140,23 @@ func _can_attack(attacker: Dictionary, target_pos: Vector2i) -> bool:
 
 # --- setup ---
 func _ready() -> void:
+	player_node = PlayerScene.instantiate()
+	add_child(player_node)
+	
+	_layout_board()  # primero escala/centra el tablero
+	player_node.set_cell(player["pos"], cell_size, false)  # sin animación
+	
 	rng.randomize()
 	_roll_dice()  # mostrar UI de dados al inicio
 
 	_init_astar()
 	_update_astar_solid_tiles()
-	_layout_board()
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	queue_redraw()
+
+func _sync_player_sprite(animate: bool = true) -> void:
+	if player_node:
+		player_node.set_cell(player["pos"], cell_size, animate)
 
 func _on_viewport_resized() -> void:
 	_layout_board()
@@ -198,8 +210,10 @@ func _on_player_click(cell: Vector2i) -> void:
 	if idx != -1:
 		if _can_attack(player, enemies[idx]["pos"]):
 			_player_attack(idx)
+			player["pos"] = cell
 			moves_left = 0
 			_update_astar_solid_tiles()
+			_sync_player_sprite(false)
 			queue_redraw()
 			_end_player_turn()
 		return
@@ -213,6 +227,7 @@ func _on_player_click(cell: Vector2i) -> void:
 	player["pos"] = cell
 	moves_left -= cost
 	_update_astar_solid_tiles()
+	_sync_player_sprite()
 	queue_redraw()
 
 	if moves_left <= 0:
@@ -354,6 +369,7 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 		moves_left = player["mv"]
 		is_drafting = false
 		_update_astar_solid_tiles()
+		_sync_player_sprite()
 		queue_redraw()
 		return
 
@@ -438,7 +454,8 @@ func _draw() -> void:
 	var player_label := "HP:%d MV:%d ATK:%d DEF:%d RNG:%d" % [
 		player["hp"], player["mv"], player["atk"], player["def"], player["rng"]
 	]
-	_draw_unit_with_label(player["pos"], Color(0.2,0.8,1.0,1.0), player_label)
+	var player_cell_rect := Rect2(Vector2(player["pos"]) * Vector2(cell_size), Vector2(cell_size))
+	_draw_unit_label(player_cell_rect, player_label, player["pos"].y == 0)
 
 	for e in enemies:
 		var enemy_label := "%s  HP:%d ATK:%d DEF:%d RNG:%d" % [
