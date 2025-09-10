@@ -381,11 +381,10 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 	# Click en Confirmar
 	var can_confirm := _all_assigned()
 	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
-		# aplicar stats: el valor del stat = valor del dado asignado
-		player["mv"]  = draft_dice[draft_assign_idx["mv"]]
-		player["atk"] = draft_dice[draft_assign_idx["atk"]]
-		player["def"] = draft_dice[draft_assign_idx["def"]]
-		player["rng"] = 2  # rango fijo
+		player["mv"]  = P_STATS["mv"]  + draft_dice[draft_assign_idx["mv"]]
+		player["atk"] = P_STATS["atk"] + draft_dice[draft_assign_idx["atk"]]
+		player["def"] = P_STATS["def"] + draft_dice[draft_assign_idx["def"]]
+		player["rng"] = P_STATS["rng"]
 
 		moves_left = player["mv"]
 		is_drafting = false
