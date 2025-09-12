@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dsulreeolkuk2"
-path="res://.godot/imported/pillar_token.png-2f80b1af0bf125bf86e24f3c0c8d93f4.ctex"
+uid="uid://dwfu0t13bx1bv"
+path="res://.godot/imported/attack_icon.png-32fb6589fd16eaa948b7bb11ccd39c00.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://pillar_token.png"
-dest_files=["res://.godot/imported/pillar_token.png-2f80b1af0bf125bf86e24f3c0c8d93f4.ctex"]
+source_file="res://attack_icon.png"
+dest_files=["res://.godot/imported/attack_icon.png-32fb6589fd16eaa948b7bb11ccd39c00.ctex"]
 
 [params]
 
