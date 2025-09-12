@@ -4,6 +4,11 @@ class_name Level1
 @onready var PlayerScene := preload("res://Player.tscn")
 @onready var EnemyScene := preload("res://Enemy.tscn")
 
+@export var grid_color: Color = Color(0, 0, 0, 1)             # celdas negras
+@export var grid_border_color: Color = Color(0.25, 0.25, 0.25) # bordes opcionales
+@export var pillar_texture: Texture2D                         # setéala en el editor
+@export_range(0.3, 1.1, 0.05) var pillar_fill := 0.9          # qué tanto ocupa la textura en la celda
+
 var player_node: Player
 var enemy_nodes: Array[Enemy] = []
 
@@ -193,9 +198,13 @@ func _init_astar() -> void:
 func _update_astar_solid_tiles() -> void:
 	for y in range(rows):
 		for x in range(cols):
-			astar.set_point_solid(Vector2i(x, y), false)
-	for p in pillars.keys():
-		astar.set_point_solid(p, true)
+			var cell := Vector2i(x, y)
+			if pillars.has(cell):
+				continue  # no dibujar esta casilla
+			var cell_rect := Rect2(Vector2(x, y) * Vector2(cell_size), Vector2(cell_size))
+			draw_rect(cell_rect, grid_color, true)
+			draw_rect(cell_rect, grid_border_color, false, 1.0)  # opcional
+			
 	astar.set_point_solid(player["pos"], true)
 	for e in enemies:
 		astar.set_point_solid(e["pos"], true)
@@ -462,13 +471,24 @@ func _draw() -> void:
 	for y in range(rows):
 		for x in range(cols):
 			var r := Rect2(Vector2(x, y) * Vector2(cell_size), Vector2(cell_size))
-			draw_rect(r, Color(0.12,0.12,0.12,1.0), true)
-			draw_rect(r, Color(0.25,0.25,0.25,1.0), false, 2.0)
+			draw_rect(r, grid_color, true)                              # negro puro
+			draw_rect(r, grid_border_color, false, 1.0)                 # borde finito opcional
 
 	# pilares
 	for p in pillars.keys():
-		var rr := Rect2(Vector2(p) * Vector2(cell_size), Vector2(cell_size))
-		draw_rect(rr, Color(0.35,0.35,0.4,1.0), true)
+		var cell_pos := Vector2(p) * Vector2(cell_size)
+		var cell_rect := Rect2(cell_pos, Vector2(cell_size))
+	
+		if pillar_texture:
+			# Rect destino un poco más chico que la celda (según pillar_fill)
+			var target_size := Vector2(cell_size) * pillar_fill
+			var offset := (Vector2(cell_size) - target_size) * 0.5
+			var dst := Rect2(cell_pos + offset, target_size)
+			# Dibujo la textura sin repetir ni tilear
+			draw_texture_rect(pillar_texture, dst, false)
+		else:
+			# Fallback a color si no seteaste textura
+			draw_rect(cell_rect, Color(0.35, 0.35, 0.4, 1.0), true)
 
 	# unidades con etiquetas
 	var player_label := "HP:%d MV:%d ATK:%d DEF:%d RNG:%d" % [
