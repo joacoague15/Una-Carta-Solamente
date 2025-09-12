@@ -142,9 +142,26 @@ func _reach_cost(a: Vector2i, b: Vector2i) -> int:
 	var diag = min(dx, dy)
 	var orto = abs(dx - dy)
 	return diag * 3 + orto * 2
+	
+var player_attacked_this_turn := false
 
 func _can_attack(attacker: Dictionary, target_pos: Vector2i) -> bool:
 	return _reach_cost(attacker["pos"], target_pos) <= int(attacker["rng"])
+	
+func _has_attack_target() -> bool:
+	for e in enemies:
+		if _can_attack(player, e["pos"]):
+			return true
+	return false
+
+func _maybe_auto_end_turn() -> void:
+	# Si no hay UI de draft activa, evaluamos auto-fin
+	if is_drafting:
+		return
+	var no_moves := moves_left <= 1  # con tu métrica 2/3, 1 o 0 ya no alcanza para moverse
+	var can_attack := _has_attack_target()
+	if no_moves and (player_attacked_this_turn or not can_attack):
+		_end_player_turn()
 
 # --- setup ---
 func _ready() -> void:
@@ -198,12 +215,7 @@ func _init_astar() -> void:
 func _update_astar_solid_tiles() -> void:
 	for y in range(rows):
 		for x in range(cols):
-			var cell := Vector2i(x, y)
-			if pillars.has(cell):
-				continue  # no dibujar esta casilla
-			var cell_rect := Rect2(Vector2(x, y) * Vector2(cell_size), Vector2(cell_size))
-			draw_rect(cell_rect, grid_color, true)
-			draw_rect(cell_rect, grid_border_color, false, 1.0)  # opcional
+			astar.set_point_solid(Vector2i(x, y), pillars.has(Vector2i(x,y)))
 			
 	astar.set_point_solid(player["pos"], true)
 	for e in enemies:
@@ -234,11 +246,11 @@ func _on_player_click(cell: Vector2i) -> void:
 	if idx != -1:
 		if _can_attack(player, enemies[idx]["pos"]):
 			_player_attack(idx)
-			moves_left = 0
+			# moves_left ya queda como esté; dejamos que decida _maybe_auto_end_turn()
 			_update_astar_solid_tiles()
 			_sync_player_sprite()
 			queue_redraw()
-			_end_player_turn()
+			_maybe_auto_end_turn()   # <<--- NUEVO
 		return
 
 	# Si es celda vacía: sólo adyacente y con puntos suficientes
@@ -252,11 +264,13 @@ func _on_player_click(cell: Vector2i) -> void:
 	_update_astar_solid_tiles()
 	_sync_player_sprite()
 	queue_redraw()
+	_maybe_auto_end_turn()
 
 	if moves_left <= 0:
 		_end_player_turn()
 
 func _player_attack(enemy_index:int) -> void:
+	player_attacked_this_turn = true   # <<--- NUEVO
 	var e = enemies[enemy_index]
 	var dmg = max(0, player["atk"] - e["def"])
 	e["hp"] -= dmg
@@ -275,10 +289,13 @@ func _end_player_turn() -> void:
 	phase = Phase.ENEMIES
 	_enemy_phase()
 	_sync_enemy_sprites(true)
+	
 	phase = Phase.PLAYER
 	moves_left = player["mv"]
+	player_attacked_this_turn = false
 	_update_astar_solid_tiles()
 	queue_redraw()
+	_maybe_auto_end_turn()   
 
 func _enemy_phase() -> void:
 	# 1) mover con presupuesto (2/3 por paso) hacia adyacencia
@@ -397,9 +414,11 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 
 		moves_left = player["mv"]
 		is_drafting = false
+		player_attacked_this_turn = false
 		_update_astar_solid_tiles()
 		_sync_player_sprite()
 		queue_redraw()
+		_maybe_auto_end_turn()
 		return
 
 func _draw_draft_ui() -> void:
