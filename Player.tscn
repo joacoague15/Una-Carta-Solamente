@@ -1,10 +1,21 @@
-[gd_scene load_steps=3 format=3 uid="uid://wb7q5nloidu5"]
+[gd_scene load_steps=7 format=3 uid="uid://wb7q5nloidu5"]
 
 [ext_resource type="Script" path="res://player.gd" id="1_voowp"]
-[ext_resource type="Texture2D" uid="uid://r1jui1qan3xs" path="res://player_token.png" id="2_plaxi"]
+[ext_resource type="Texture2D" uid="uid://3dh1elnqmmqo" path="res://heart_icon.png" id="2_btcqh"]
+[ext_resource type="Texture2D" uid="uid://bb11pbuyfsv81" path="res://speed.png" id="2_cvw2m"]
+[ext_resource type="Texture2D" uid="uid://dwfu0t13bx1bv" path="res://attack_icon.png" id="3_4uxt0"]
+[ext_resource type="Texture2D" uid="uid://cngn5ixt72jb7" path="res://defense_icon.png" id="4_0cqic"]
+[ext_resource type="Texture2D" uid="uid://dc43bwr0ht8ow" path="res://range_icon.png" id="5_1hd5u"]
 
 [node name="Player" type="Node2D"]
 script = ExtResource("1_voowp")
+badge_x_offset = -16.0
+icon_mv = ExtResource("2_cvw2m")
+icon_atk = ExtResource("3_4uxt0")
+icon_def = ExtResource("4_0cqic")
+icon_rng = ExtResource("5_1hd5u")
+icon_scale = 2.0
+badge_font_size = 12
 
 [node name="Sprite2D" type="Sprite2D" parent="."]
-texture = ExtResource("2_plaxi")
+texture = ExtResource("2_btcqh")

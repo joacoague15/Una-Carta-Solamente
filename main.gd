@@ -170,6 +170,7 @@ func _ready() -> void:
 	
 	_layout_board()  # primero escala/centra el tablero
 	player_node.set_cell(player["pos"], cell_size, false)  # sin animación
+	player_node.set_stats(player["mv"], player["atk"], player["def"], player["rng"])
 	
 	rng.randomize()
 	_roll_dice()  # mostrar UI de dados al inicio
@@ -413,6 +414,7 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 		player["rng"] = P_STATS["rng"]
 
 		moves_left = player["mv"]
+		player_node.set_stats(player["mv"], player["atk"], player["def"], player["rng"])
 		is_drafting = false
 		player_attacked_this_turn = false
 		_update_astar_solid_tiles()
@@ -490,58 +492,21 @@ func _draw() -> void:
 	for y in range(rows):
 		for x in range(cols):
 			var r := Rect2(Vector2(x, y) * Vector2(cell_size), Vector2(cell_size))
-			draw_rect(r, grid_color, true)                              # negro puro
-			draw_rect(r, grid_border_color, false, 1.0)                 # borde finito opcional
+			draw_rect(r, grid_color, true)
+			draw_rect(r, grid_border_color, false, 1.0)
 
 	# pilares
 	for p in pillars.keys():
 		var cell_pos := Vector2(p) * Vector2(cell_size)
 		var cell_rect := Rect2(cell_pos, Vector2(cell_size))
-	
 		if pillar_texture:
-			# Rect destino un poco más chico que la celda (según pillar_fill)
 			var target_size := Vector2(cell_size) * pillar_fill
 			var offset := (Vector2(cell_size) - target_size) * 0.5
 			var dst := Rect2(cell_pos + offset, target_size)
-			# Dibujo la textura sin repetir ni tilear
 			draw_texture_rect(pillar_texture, dst, false)
 		else:
-			# Fallback a color si no seteaste textura
 			draw_rect(cell_rect, Color(0.35, 0.35, 0.4, 1.0), true)
-
-	# unidades con etiquetas
-	var player_label := "HP:%d MV:%d ATK:%d DEF:%d RNG:%d" % [
-		player["hp"], player["mv"], player["atk"], player["def"], player["rng"]
-	]
-	var player_cell_rect := Rect2(Vector2(player["pos"]) * Vector2(cell_size), Vector2(cell_size))
-	_draw_unit_label(player_cell_rect, player_label, player["pos"].y == 0)
-
-	for e in enemies:
-		var enemy_label := "%s  HP:%d ATK:%d DEF:%d RNG:%d" % [
-			e["name"], e["hp"], e["atk"], e["def"], e["rng"]
-		]
-		_draw_unit_with_label(e["pos"], Color(1.0,0.35,0.35,1.0), enemy_label)
 
 	# UI de dados encima
 	if is_drafting:
 		_draw_draft_ui()
-
-func _draw_unit_with_label(cell: Vector2i, col: Color, label_text: String) -> void:
-	var r := Rect2(Vector2(cell) * Vector2(cell_size), Vector2(cell_size))
-	var inset := 8.0
-	var rr := Rect2(r.position + Vector2(inset, inset), r.size - Vector2(2*inset, 2*inset))
-	_draw_unit_label(r, label_text, cell.y == 0)
-
-func _draw_unit_label(cell_rect: Rect2, text: String, is_top_row: bool=false) -> void:
-	var font := ThemeDB.fallback_font
-	var fs := 14
-	var pad := Vector2(6, 4)
-	var text_size: Vector2 = font.get_string_size(text, fs)
-	var top_left_x := cell_rect.position.x + (cell_rect.size.x - text_size.x) * 0.5
-	var top_left_y := cell_rect.position.y - fs - 6
-	if is_top_row and top_left_y < 0.0:
-		top_left_y = cell_rect.position.y + cell_rect.size.y + 6
-	var bg_rect := Rect2(Vector2(top_left_x, top_left_y) - pad, text_size + pad * 2.0)
-	draw_rect(bg_rect, Color(0,0,0,0.6), true)
-	var baseline := top_left_y + fs
-	draw_string(font, Vector2(top_left_x, baseline), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
