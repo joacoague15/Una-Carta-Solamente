@@ -1,7 +1,25 @@
-[gd_scene load_steps=2 format=3 uid="uid://b206ltc27s43y"]
+[gd_scene load_steps=8 format=3 uid="uid://b206ltc27s43y"]
 
 [ext_resource type="Script" path="res://main.gd" id="1_ig7tw"]
+[ext_resource type="Texture2D" uid="uid://3dh1elnqmmqo" path="res://heart_icon.png" id="2_qcox4"]
+[ext_resource type="Texture2D" uid="uid://bb11pbuyfsv81" path="res://speed.png" id="3_rmq30"]
+[ext_resource type="Texture2D" uid="uid://dwfu0t13bx1bv" path="res://attack_icon.png" id="4_jso7v"]
+[ext_resource type="Texture2D" uid="uid://cngn5ixt72jb7" path="res://defense_icon.png" id="5_udt8h"]
+[ext_resource type="Texture2D" uid="uid://dc43bwr0ht8ow" path="res://range_icon.png" id="6_lqtqx"]
+[ext_resource type="Script" path="res://canvas_layer.gd" id="7_g26h0"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_ig7tw")
 grid_border_color = Color(1, 1, 1, 1)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="HudOverlay" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 0
+script = ExtResource("7_g26h0")
+icon_hp = ExtResource("2_qcox4")
+icon_mv = ExtResource("3_rmq30")
+icon_atk = ExtResource("4_jso7v")
+icon_def = ExtResource("5_udt8h")
+icon_rng = ExtResource("6_lqtqx")

@@ -12,6 +12,8 @@ class_name Level1
 var player_node: Player
 var enemy_nodes: Array[Enemy] = []
 
+var hud: HudOverlay
+
 @export var cols := 4
 @export var rows := 5
 @export var cell_size := Vector2i(96, 96)
@@ -27,6 +29,9 @@ var is_drafting := true
 var draft_dice: Array[int] = []
 var draft_assign_idx := {"mv": -1, "atk": -1, "def": -1} # guarda índices 0..2 de draft_dice
 var draft_selected_die := -1
+var draft_hovered_die := -1
+var draft_hovered_confirm := false
+var draft_pressed_confirm := false
 
 func _roll_dice() -> void:
 	draft_dice = [rng.randi_range(1, 6), rng.randi_range(1, 6), rng.randi_range(1, 6)]
@@ -165,12 +170,13 @@ func _maybe_auto_end_turn() -> void:
 
 # --- setup ---
 func _ready() -> void:
+	add_child(hud)
+	
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
 	
 	_layout_board()  # primero escala/centra el tablero
 	player_node.set_cell(player["pos"], cell_size, false)  # sin animación
-	player_node.set_stats(player["mv"], player["atk"], player["def"], player["rng"])
 	
 	rng.randomize()
 	_roll_dice()  # mostrar UI de dados al inicio
@@ -226,8 +232,15 @@ func _update_astar_solid_tiles() -> void:
 func _input(event: InputEvent) -> void:
 	# Primero, si estamos en la UI de dados, consumimos el input ahí.
 	if is_drafting:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			_handle_draft_click(to_local(get_viewport().get_mouse_position()))
+		var local_pos := to_local(get_viewport().get_mouse_position())
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_handle_draft_press(local_pos)
+				_handle_draft_click(local_pos)
+			else:
+				_handle_draft_release()
+		elif event is InputEventMouseMotion:
+			_handle_draft_hover(local_pos)
 		return
 
 	if phase != Phase.PLAYER:
@@ -345,24 +358,43 @@ func _enemy_phase() -> void:
 		player["hp"] -= dmg
 	if player["hp"] <= 0:
 		print("Player defeated")
+		
+	if hud:
+		hud.set_stats(player)
 
 # --- DRAFT UI (dibujado + clicks) ---
 func _draft_layout() -> Dictionary:
-	# Layout base en coordenadas locales del tablero
-	var pad := 12.0
+	# Calcular el centro del tablero
+	var board_size := Vector2(cols * cell_size.x, rows * cell_size.y)
 	var die_size := Vector2(64, 64)
 	var spacing := 12.0
-	var base := Vector2(pad, pad)
+	var slot_size := Vector2(120, 36)
+
+	# Calcular el ancho total de los dados
+	var total_dice_width := (die_size.x * 3) + (spacing * 2)
+
+	# Calcular el ancho total de los slots
+	var total_slots_width := (slot_size.x * 3) + (spacing * 2)
+
+	# Usar el mayor ancho para centrar todo
+	var total_ui_width = max(total_dice_width, total_slots_width)
+
+	# Calcular altura total del UI
+	var total_ui_height := die_size.y + 20 + slot_size.y + 20 + 36  # dados + espacio + slots + espacio + confirmar
+
+	# Centrar el UI en el tablero
+	var ui_start := Vector2((board_size.x - total_ui_width) * 0.5, (board_size.y - total_ui_height) * 0.5)
+
 	var die_rects: Array[Rect2] = []
 	for i in 3:
-		die_rects.append(Rect2(base + Vector2((die_size.x + spacing) * i, 0), die_size))
-	var slot_size := Vector2(120, 36)
+		die_rects.append(Rect2(ui_start + Vector2((die_size.x + spacing) * i, 0), die_size))
+
 	var slots := {
-		"mv": Rect2(base + Vector2(0, die_size.y + 20), slot_size),
-		"atk": Rect2(base + Vector2(130, die_size.y + 20), slot_size),
-		"def": Rect2(base + Vector2(260, die_size.y + 20), slot_size),
+		"mv": Rect2(ui_start + Vector2(0, die_size.y + 20), slot_size),
+		"atk": Rect2(ui_start + Vector2(130, die_size.y + 20), slot_size),
+		"def": Rect2(ui_start + Vector2(260, die_size.y + 20), slot_size),
 	}
-	var confirm_rect := Rect2(base + Vector2(0, die_size.y + 20 + 48), Vector2(140, 36))
+	var confirm_rect := Rect2(ui_start + Vector2(0, die_size.y + 20 + 48), Vector2(140, 36))
 	var panel_rect := Rect2(Vector2.ZERO, Vector2(cols * cell_size.x, rows * cell_size.y))
 	return {
 		"die_rects": die_rects,
@@ -370,6 +402,48 @@ func _draft_layout() -> Dictionary:
 		"confirm": confirm_rect,
 		"panel": panel_rect
 	}
+
+func _handle_draft_hover(local_pos: Vector2) -> void:
+	var L := _draft_layout()
+	var old_hovered_die := draft_hovered_die
+	var old_hovered_confirm := draft_hovered_confirm
+	draft_hovered_die = -1
+	draft_hovered_confirm = false
+
+	# Check if mouse is over any die
+	for i in draft_dice.size():
+		if L["die_rects"][i].has_point(local_pos):
+			draft_hovered_die = i
+			break
+
+	# Check if mouse is over confirm button (only when it's visible)
+	var can_confirm := _all_assigned()
+	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
+		draft_hovered_confirm = true
+
+	# Redraw if hover state changed
+	if old_hovered_die != draft_hovered_die or old_hovered_confirm != draft_hovered_confirm:
+		queue_redraw()
+
+func _handle_draft_press(local_pos: Vector2) -> void:
+	var L := _draft_layout()
+	var can_confirm := _all_assigned()
+	var old_pressed := draft_pressed_confirm
+	draft_pressed_confirm = false
+
+	# Check if pressing confirm button
+	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
+		draft_pressed_confirm = true
+
+	if old_pressed != draft_pressed_confirm:
+		queue_redraw()
+
+func _handle_draft_release() -> void:
+	var old_pressed := draft_pressed_confirm
+	draft_pressed_confirm = false
+
+	if old_pressed:
+		queue_redraw()
 
 func _handle_draft_click(local_pos: Vector2) -> void:
 	var L := _draft_layout()
@@ -414,9 +488,10 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 		player["rng"] = P_STATS["rng"]
 
 		moves_left = player["mv"]
-		player_node.set_stats(player["mv"], player["atk"], player["def"], player["rng"])
 		is_drafting = false
 		player_attacked_this_turn = false
+		if hud: 
+			hud.set_stats(player)
 		_update_astar_solid_tiles()
 		_sync_player_sprite()
 		queue_redraw()
@@ -441,21 +516,32 @@ func _draw_draft_ui() -> void:
 		var r: Rect2 = L["die_rects"][i]
 		var is_assigned := _die_assigned(i)
 		var is_selected := (draft_selected_die == i)
+		var is_hovered := (draft_hovered_die == i)
+
+		# Background color with hover and selected states
+		var bg_color: Color
 		if is_selected:
-			draw_rect(r, Color(0.25,0.5,1,1), true)
+			# Gray with reduced opacity for selected state
+			bg_color = Color(0.4, 0.4, 0.4, 0.8)
+		elif is_hovered and not is_assigned:
+			# Lighter black for hover
+			bg_color = Color(0.15, 0.15, 0.15, 1)
 		else:
-			draw_rect(r, Color(0.2,0.2,0.2,1), true)
-		
+			# Black background
+			bg_color = Color(0, 0, 0, 1)
+
+		draw_rect(r, bg_color, true)
 		draw_rect(r, Color(1,1,1,1), false, 2.0)
+
 		var txt := str(draft_dice[i])
-		var ts := font.get_string_size(txt, fs)
-		var pos := r.position + (r.size - ts) * 0.5 + Vector2(0, fs*0.2)
+		var ts := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		var pos := r.position + (r.size - ts) * 0.5
 		var col
 		if is_assigned:
 			col = Color(0.8,0.8,0.8,0.7)
 		else:
-			col = Color(1,1,1,1)	
-		
+			col = Color(1,1,1,1)
+
 		draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 	# slots
@@ -474,17 +560,26 @@ func _draw_draft_ui() -> void:
 		draw_rect(r2, Color(1,1,1,1), false, 2.0)
 		draw_string(font, r2.position + Vector2(8, r2.size.y*0.6), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
-	# botón confirmar
+	# botón confirmar - solo mostrar cuando todos los dados están asignados
 	var can_confirm := _all_assigned()
-	var rc: Rect2 = L["confirm"]
-	
 	if can_confirm:
-		draw_rect(rc, Color(0.15,0.45,0.15,1), true)
-	else:
-		draw_rect(rc, Color(0.2,0.2,0.2,1), true)
-		
-	draw_rect(rc, Color(1,1,1,1), false, 2.0)
-	draw_string(font, rc.position + Vector2(8, rc.size.y*0.6), "Confirmar", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+		var rc: Rect2 = L["confirm"]
+
+		# Background color with hover and press states
+		var confirm_bg_color: Color
+		if draft_pressed_confirm:
+			# Darker gray when pressed
+			confirm_bg_color = Color(0.2, 0.2, 0.2, 1)
+		elif draft_hovered_confirm:
+			# Lighter black when hovered
+			confirm_bg_color = Color(0.15, 0.15, 0.15, 1)
+		else:
+			# Black background
+			confirm_bg_color = Color(0, 0, 0, 1)
+
+		draw_rect(rc, confirm_bg_color, true)
+		draw_rect(rc, Color(1,1,1,1), false, 2.0)
+		draw_string(font, rc.position + Vector2(8, rc.size.y*0.6), "Confirmar", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 # --- drawing ---
 func _draw() -> void:
@@ -510,3 +605,9 @@ func _draw() -> void:
 	# UI de dados encima
 	if is_drafting:
 		_draw_draft_ui()
+		
+func _draw_stats_hud() -> void:
+	var board_w := float(cols * cell_size.x)
+	var board_h := float(rows * cell_size.y)
+
+	var font := ThemeDB.fallback_font
