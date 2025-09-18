@@ -19,10 +19,6 @@ func _ready() -> void:
 		sprite.scale = target / tex
 	sprite.centered = true
 
-func set_stats(_mv:int, _atk:int, _def:int, _rng:int) -> void:
-	# Intencionalmente vacío (ya no mostramos badges en el Player)
-	pass
-
 func set_cell(cell: Vector2i, cell_size: Vector2i, animate: bool = true) -> void:
 	_last_cell_size = cell_size
 	var target_pos = Vector2(

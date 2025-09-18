@@ -12,7 +12,7 @@ class_name Level1
 var player_node: Player
 var enemy_nodes: Array[Enemy] = []
 
-var hud: HudOverlay
+@onready var hud: HudOverlay = $"UI/HudOverlay"
 
 @export var cols := 4
 @export var rows := 5
@@ -170,8 +170,6 @@ func _maybe_auto_end_turn() -> void:
 
 # --- setup ---
 func _ready() -> void:
-	add_child(hud)
-	
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
 	
