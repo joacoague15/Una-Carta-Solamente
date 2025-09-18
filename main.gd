@@ -20,6 +20,12 @@ var enemy_nodes: Array[Enemy] = []
 
 @export var dice_right_margin := 16.0
 
+@export var slot_icon_mv:  Texture2D
+@export var slot_icon_atk: Texture2D
+@export var slot_icon_def: Texture2D
+
+@export var slot_icon_size := Vector2(28, 28)
+
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
 const E_STATS = { "hp": 2, "mv": 3, "atk": 1, "def": 1, "rng": 2 }
 
@@ -524,11 +530,6 @@ func _draw_draft_ui() -> void:
 	var font := ThemeDB.fallback_font
 	var fs := 16
 
-	# título
-	var title := "Asigná los dados a MV / ATK / DEF"
-	var title_size := font.get_string_size(title, fs)
-	draw_string(font, Vector2(12, -8 + fs + 12), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
-
 	# dados
 	for i in draft_dice.size():
 		var r: Rect2 = L["die_rects"][i]
@@ -552,7 +553,7 @@ func _draw_draft_ui() -> void:
 		draw_rect(r, Color(1,1,1,1), false, 2.0)
 
 		var txt := str(draft_dice[i])
-		var ts := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		var ts := font.get_string_size(txt, fs)
 		var pos := r.position + (r.size - ts) * 0.5
 		var col
 		if is_assigned:
@@ -565,39 +566,63 @@ func _draw_draft_ui() -> void:
 	# slots
 	for k in ["mv","atk","def"]:
 		var r2: Rect2 = L["slots"][k]
-		var label := String(k).to_upper()
 		var idx = draft_assign_idx[k]
-		var txt
+
+		# fondo + borde
+		var hovered := r2.has_point(to_local(get_viewport().get_mouse_position()))
+		var bg_col
 		
-		if idx == -1:
-			txt = label + ": —"
+		if hovered:
+			bg_col = Color(0.12,0.12,0.12,1)
 		else:
-			txt =  label + ": " + str(draft_dice[idx])
+			bg_col = Color(0.10,0.10,0.10,1)
 		
-		draw_rect(r2, Color(0.1,0.1,0.1,1), true)
+		draw_rect(r2, bg_col, true)
 		draw_rect(r2, Color(1,1,1,1), false, 2.0)
-		draw_string(font, r2.position + Vector2(8, r2.size.y*0.6), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
-	# botón confirmar - solo mostrar cuando todos los dados están asignados
-	var can_confirm := _all_assigned()
-	if can_confirm:
-		var rc: Rect2 = L["confirm"]
+		# ícono del slot
+		var icon: Texture2D = null
+		if k == "mv":  icon = slot_icon_mv
+		if k == "atk": icon = slot_icon_atk
+		if k == "def": icon = slot_icon_def
 
-		# Background color with hover and press states
-		var confirm_bg_color: Color
-		if draft_pressed_confirm:
-			# Darker gray when pressed
-			confirm_bg_color = Color(0.2, 0.2, 0.2, 1)
-		elif draft_hovered_confirm:
-			# Lighter black when hovered
-			confirm_bg_color = Color(0.15, 0.15, 0.15, 1)
+		var icon_rect := Rect2(
+			r2.position + Vector2(6, (r2.size.y - slot_icon_size.y) * 0.5),
+			slot_icon_size
+		)
+
+		if icon:
+			draw_texture_rect(icon, icon_rect, false)
 		else:
-			# Black background
-			confirm_bg_color = Color(0, 0, 0, 1)
+			# fallback a label si no asignaste ícono
+			var label := String(k).to_upper()
+			draw_string(font, r2.position + Vector2(8, r2.size.y*0.6), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
-		draw_rect(rc, confirm_bg_color, true)
-		draw_rect(rc, Color(1,1,1,1), false, 2.0)
-		draw_string(font, rc.position + Vector2(8, rc.size.y*0.6), "Confirmar", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+		# valor (si hay dado asignado)
+		var txt
+		if idx == -1:
+			txt = ""
+		else:
+			txt = str(draft_dice[idx])
+		
+		var txt_size := font.get_string_size(txt, fs)
+		var value_x
+		
+		if icon:
+			value_x = icon_rect.position.x + slot_icon_size.x + 10
+		else:
+			value_x = icon_rect.position.x + 10
+		
+		if icon:
+			value_x = icon_rect.position.x + (slot_icon_size.x) + 10
+		else:
+			value_x = icon_rect.position.x + 10
+		
+		var value_pos := Vector2(
+			value_x,
+			r2.position.y + (r2.size.y + txt_size.y) * 0.5
+		)
+		draw_string(font, value_pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 # --- drawing ---
 func _draw() -> void:

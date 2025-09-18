@@ -12,6 +12,9 @@
 script = ExtResource("1_ig7tw")
 grid_border_color = Color(1, 1, 1, 1)
 dice_right_margin = 100.0
+slot_icon_mv = ExtResource("3_rmq30")
+slot_icon_atk = ExtResource("4_jso7v")
+slot_icon_def = ExtResource("5_udt8h")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
