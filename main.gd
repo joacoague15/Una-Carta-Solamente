@@ -18,6 +18,8 @@ var enemy_nodes: Array[Enemy] = []
 @export var rows := 5
 @export var cell_size := Vector2i(96, 96)
 
+@export var dice_right_margin := 16.0
+
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
 const E_STATS = { "hp": 2, "mv": 3, "atk": 1, "def": 1, "rng": 2 }
 
@@ -170,6 +172,8 @@ func _maybe_auto_end_turn() -> void:
 
 # --- setup ---
 func _ready() -> void:
+	add_child(hud)
+	
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
 	
@@ -362,44 +366,60 @@ func _enemy_phase() -> void:
 
 # --- DRAFT UI (dibujado + clicks) ---
 func _draft_layout() -> Dictionary:
-	# Calcular el centro del tablero
 	var board_size := Vector2(cols * cell_size.x, rows * cell_size.y)
 	var die_size := Vector2(64, 64)
-	var spacing := 12.0
 	var slot_size := Vector2(120, 36)
+	var button_size := Vector2(160, 36)
+	var spacing := 12.0
+	
+	# Anchos totales
+	var total_dice_w := die_size.x * 3 + spacing * 2
+	var total_slots_w := slot_size.x * 3 + spacing * 2
+	var total_ui_w = max(total_dice_w, total_slots_w)
+	
+	# Altura total del bloque de draft
+	var total_ui_h := die_size.y + 20 + slot_size.y + 20 + button_size.y
 
-	# Calcular el ancho total de los dados
-	var total_dice_width := (die_size.x * 3) + (spacing * 2)
-
-	# Calcular el ancho total de los slots
-	var total_slots_width := (slot_size.x * 3) + (spacing * 2)
-
-	# Usar el mayor ancho para centrar todo
-	var total_ui_width = max(total_dice_width, total_slots_width)
-
-	# Calcular altura total del UI
-	var total_ui_height := die_size.y + 20 + slot_size.y + 20 + 36  # dados + espacio + slots + espacio + confirmar
-
-	# Centrar el UI en el tablero
-	var ui_start := Vector2((board_size.x - total_ui_width) * 0.5, (board_size.y - total_ui_height) * 0.5)
+	# Origen del panel (centrado en el tablero)
+	var ui_start := Vector2(
+		(board_size.x - total_ui_w) * 0.5,
+		(board_size.y - total_ui_h) * 0.5
+	)
+	
+		# -------- DADOS (alineados a la derecha del panel) --------
+	# x0 es el inicio de la fila de dados; se alinea al borde derecho con un margen
+	var dice_x0 = ui_start.x + total_ui_w - total_dice_w - dice_right_margin
+	# Evitar que se “pisen” hacia la izquierda si el margen es grande
+	dice_x0 = max(dice_x0, ui_start.x)
 
 	var die_rects: Array[Rect2] = []
 	for i in 3:
-		die_rects.append(Rect2(ui_start + Vector2((die_size.x + spacing) * i, 0), die_size))
+		var p := Vector2(dice_x0 + i * (die_size.x + spacing), ui_start.y)
+		die_rects.append(Rect2(p, die_size))
 
+	# -------- SLOTS (centrados) --------
+	var slots_x0 = ui_start.x + (total_ui_w - total_slots_w) * 0.5
+	var slots_y := ui_start.y + die_size.y + 20
 	var slots := {
-		"mv": Rect2(ui_start + Vector2(0, die_size.y + 20), slot_size),
-		"atk": Rect2(ui_start + Vector2(130, die_size.y + 20), slot_size),
-		"def": Rect2(ui_start + Vector2(260, die_size.y + 20), slot_size),
+		"mv":  Rect2(Vector2(slots_x0 + 0 * (slot_size.x + spacing), slots_y), slot_size),
+		"atk": Rect2(Vector2(slots_x0 + 1 * (slot_size.x + spacing), slots_y), slot_size),
+		"def": Rect2(Vector2(slots_x0 + 2 * (slot_size.x + spacing), slots_y), slot_size),
 	}
-	var confirm_rect := Rect2(ui_start + Vector2(0, die_size.y + 20 + 48), Vector2(140, 36))
-	var panel_rect := Rect2(Vector2.ZERO, Vector2(cols * cell_size.x, rows * cell_size.y))
+
+	# -------- CONFIRMAR (centrado) --------
+	var confirm_y := slots_y + slot_size.y + 20
+	var confirm_x = ui_start.x + (total_ui_w - button_size.x) * 0.5
+	var confirm_rect := Rect2(Vector2(confirm_x, confirm_y), button_size)
+
+	# Panel oscuro que cubre el tablero
+	var panel_rect := Rect2(Vector2.ZERO, board_size)
+
 	return {
 		"die_rects": die_rects,
 		"slots": slots,
 		"confirm": confirm_rect,
 		"panel": panel_rect
-	}
+}
 
 func _handle_draft_hover(local_pos: Vector2) -> void:
 	var L := _draft_layout()
