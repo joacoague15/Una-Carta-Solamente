@@ -24,6 +24,8 @@ var enemy_nodes: Array[Enemy] = []
 @export var slot_icon_atk: Texture2D
 @export var slot_icon_def: Texture2D
 
+@export var confirm_margin := Vector2(16, 16) # (derecha, abajo) dentro del panel del draft
+
 @export var slot_icon_size := Vector2(28, 28)
 
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
@@ -413,9 +415,11 @@ func _draft_layout() -> Dictionary:
 	}
 
 	# -------- CONFIRMAR (centrado) --------
-	var confirm_y := slots_y + slot_size.y + 20
-	var confirm_x = ui_start.x + (total_ui_w - button_size.x) * 0.5
-	var confirm_rect := Rect2(Vector2(confirm_x, confirm_y), button_size)
+	var confirm_pos := Vector2(
+		ui_start.x + total_ui_w - button_size.x - confirm_margin.x,
+		ui_start.y + total_ui_h - button_size.y - confirm_margin.y
+	)
+	var confirm_rect := Rect2(confirm_pos, button_size)
 
 	# Panel oscuro que cubre el tablero
 	var panel_rect := Rect2(Vector2.ZERO, board_size)
@@ -553,8 +557,12 @@ func _draw_draft_ui() -> void:
 		draw_rect(r, Color(1,1,1,1), false, 2.0)
 
 		var txt := str(draft_dice[i])
+		var txt_size := font.get_string_size(txt, fs)
+		var pos := Vector2(
+			r.position.x + (r.size.x - txt_size.x) * 0.5,
+			r.position.y + (r.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs)
+		)
 		var ts := font.get_string_size(txt, fs)
-		var pos := r.position + (r.size - ts) * 0.5
 		var col
 		if is_assigned:
 			col = Color(0.8,0.8,0.8,0.7)
@@ -620,9 +628,29 @@ func _draw_draft_ui() -> void:
 		
 		var value_pos := Vector2(
 			value_x,
-			r2.position.y + (r2.size.y + txt_size.y) * 0.5
+			r2.position.y + (r2.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs)
 		)
 		draw_string(font, value_pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+		
+		# ---- CONFIRMAR ----
+		var can_confirm := _all_assigned()
+		if can_confirm:
+			var rc: Rect2 = L["confirm"]
+			var confirm_bg_color: Color
+			if draft_pressed_confirm:
+				confirm_bg_color = Color(0.2, 0.2, 0.2, 1)
+			elif draft_hovered_confirm:
+				confirm_bg_color = Color(0.15, 0.15, 0.15, 1)
+			else:
+				confirm_bg_color = Color(0, 0, 0, 1)
+			draw_rect(rc, confirm_bg_color, true)
+			draw_rect(rc, Color(1,1,1,1), false, 2.0)
+
+			var ctxt := "Confirmar"
+			var csize := font.get_string_size(ctxt, fs)
+			var cx := rc.position.x + (rc.size.x - csize.x) * 0.5
+			var cy := rc.position.y + (rc.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs)
+			draw_string(font, Vector2(cx, cy), ctxt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 # --- drawing ---
 func _draw() -> void:
