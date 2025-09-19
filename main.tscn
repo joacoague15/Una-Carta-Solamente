@@ -36,3 +36,4 @@ icon_mv = ExtResource("3_rmq30")
 icon_atk = ExtResource("4_jso7v")
 icon_def = ExtResource("5_udt8h")
 icon_rng = ExtResource("6_lqtqx")
+enemy_title = "Goblins"

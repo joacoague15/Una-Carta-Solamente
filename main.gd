@@ -93,7 +93,7 @@ var player := {
 
 var enemies := [
 	{
-		"name": "spider1",
+		"name": "goblin1",
 		"pos": rc(1, 4),
 		"hp": E_STATS["hp"],
 		"mv": E_STATS["mv"],
@@ -102,7 +102,7 @@ var enemies := [
 		"rng": E_STATS["rng"],
 	},
 	{
-		"name": "spider2",
+		"name": "goblin2",
 		"pos": rc(3, 4),
 		"hp": E_STATS["hp"],
 		"mv": E_STATS["mv"],
@@ -258,6 +258,15 @@ func _ready() -> void:
 		# fade-in suave
 		var tw := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_bgm, "volume_db", bgm_volume_db, bgm_fadein_sec)
+		
+		if hud:
+			hud.set_enemy_stats({
+				"mv": E_STATS["mv"],
+				"atk": E_STATS["atk"],
+				"def": E_STATS["def"],
+				"rng": E_STATS["rng"]
+			})
+			hud.set_stats(player)
 
 func _sync_player_sprite(animate: bool = true) -> void:
 	if player_node:
