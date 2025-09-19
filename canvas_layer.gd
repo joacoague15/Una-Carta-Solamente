@@ -34,6 +34,10 @@ class_name HudOverlay
 @export var enemy_title := "ENEMIGO"
 @export var enemy_font_px := 24
 
+# ---------- Fonts ----------
+@export var ui_font: Font
+@export var enemy_font: Font   # opcional; si no, usa ui_font
+
 # ---------- Estado ----------
 # Player
 var _stats := {"hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2}
@@ -95,7 +99,7 @@ func _text_for_enemy(key: String) -> String:
 func _draw() -> void:
 	var s := _calc_scale()
 	var vp := get_viewport_rect().size
-	var font := ThemeDB.fallback_font
+	var font := ui_font
 
 	# === Panel Player (abajo-izquierda) ===
 	var icon_side := base_icon * s
@@ -133,6 +137,9 @@ func _draw() -> void:
 		var text_size := font.get_string_size(txt, font_px)
 		var baseline := tl.y + (icon_side + text_size.y) * 0.5
 		var text_pos := Vector2(tl.x + icon_side + gap, baseline)
+		var outline_px := int(round(2.0 * s))
+		if outline_px > 0:
+			draw_string_outline(font, text_pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_px, Color(0,0,0,1))
 		draw_string(font, text_pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, Color.WHITE)
 		y += row_h
 
