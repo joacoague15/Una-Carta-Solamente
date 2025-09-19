@@ -39,16 +39,6 @@ var enemy_nodes: Array[Enemy] = []
 @export var bgm_volume_db := -10.0    
 @export var bgm_fadein_sec := 1.5        # duración del fade-in
 
-# --- Fog (una sola capa, sin shaders) ---
-@export var fog_tex: Texture2D
-@export var fog_speed := Vector2(8, 0)
-@export var fog_tint := Color(1, 1, 1, 0.16)
-
-var _fog_bg: ParallaxBackground
-var _fog_layer: ParallaxLayer
-var _fog_rect: TextureRect
-var _fog_holder: Node2D
-
 var _bgm: AudioStreamPlayer
 
 # Un reproductor de SFX (o poné uno en la escena y apúntalo con $SFX)
@@ -224,53 +214,10 @@ func _flash_red(n: CanvasItem, dur := 0.18) -> void:
 	var t := create_tween()
 	t.tween_property(n, "modulate", Color(1,0.25,0.25,1), dur*0.5)
 	t.tween_property(n, "modulate", Color(1,1,1,1), dur*0.5)
-	
-func _init_fog() -> void:
-	# Holder que NO hereda el transform de Level1
-	_fog_holder = Node2D.new()
-	_fog_holder.top_level = true
-	add_child(_fog_holder)
-
-	# Parallax
-	_fog_bg = ParallaxBackground.new()
-	_fog_holder.add_child(_fog_bg)
-
-	_fog_layer = ParallaxLayer.new()
-	_fog_layer.motion_scale = Vector2(0.12, 0.12)
-	_fog_bg.add_child(_fog_layer)
-
-	_fog_rect = TextureRect.new()
-	_fog_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_fog_rect.texture = fog_tex
-	_fog_rect.modulate = fog_tint
-	_fog_rect.stretch_mode = TextureRect.STRETCH_TILE
-	_fog_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_fog_layer.add_child(_fog_rect)
-
-	_update_fog_size()
-	
-func _update_fog_size() -> void:
-	var vp: Vector2 = get_viewport_rect().size
-	var vp_int := Vector2(floor(vp.x), floor(vp.y))
-
-	if is_instance_valid(_fog_rect):
-		_fog_rect.size = vp_int
-		_fog_rect.anchor_left = 0; _fog_rect.anchor_top = 0
-		_fog_rect.anchor_right = 0; _fog_rect.anchor_bottom = 0
-
-	if is_instance_valid(_fog_layer):
-		_fog_layer.motion_mirroring = vp_int
-
-func _process(delta: float) -> void:
-	if is_instance_valid(_fog_layer):
-		_fog_layer.motion_offset += fog_speed * delta
 
 # --- setup ---
 func _ready() -> void:
 	add_child(hud)
-	
-	_init_fog()
-	get_viewport().size_changed.connect(_update_fog_size)
 	
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
@@ -431,8 +378,6 @@ func _enemy_die(enemy_index: int) -> void:
 	# remover data y nodo
 	enemies.remove_at(enemy_index)
 	enemy_nodes.remove_at(enemy_index)
-	if is_instance_valid(node):
-		node.queue_free()
 
 	_update_astar_solid_tiles()
 	_sync_enemy_sprites(false)

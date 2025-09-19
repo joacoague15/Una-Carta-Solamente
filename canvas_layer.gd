@@ -101,7 +101,8 @@ func _draw() -> void:
 	var text_w := max_text_w
 
 	# Panel abajo-izquierda
-	var panel_w := pad + icon_side + gap + text_w + pad
+	var extra_w := 60.0 * s   # ajustá este número a gusto
+	var panel_w := pad + icon_side + gap + text_w + pad + extra_w
 	var panel_h = pad + order.size() * row_h + pad
 	var panel_pos := Vector2(pad, vp.y - panel_h - pad)
 
