@@ -28,8 +28,24 @@ var enemy_nodes: Array[Enemy] = []
 
 @export var slot_icon_size := Vector2(28, 28)
 
+# --- FX / Audio ---
+@export var sfx_player_attack: AudioStream
+@export var sfx_enemy_hit:     AudioStream
+@export var sfx_enemy_die:     AudioStream
+
+# --- Música ambiente ---
+@export var bgm_stream: AudioStream 
+@export var bgm_bus := "Master"    
+@export var bgm_volume_db := -10.0    
+@export var bgm_fadein_sec := 1.5        # duración del fade-in
+
+var _bgm: AudioStreamPlayer
+
+# Un reproductor de SFX (o poné uno en la escena y apúntalo con $SFX)
+var _sfx: AudioStreamPlayer
+
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
-const E_STATS = { "hp": 2, "mv": 3, "atk": 1, "def": 1, "rng": 2 }
+const E_STATS = { "hp": 20, "mv": 3, "atk": 1, "def": 1, "rng": 2 }
 
 var astar := AStarGrid2D.new()
 var rng := RandomNumberGenerator.new()
@@ -178,6 +194,27 @@ func _maybe_auto_end_turn() -> void:
 	if no_moves and (player_attacked_this_turn or not can_attack):
 		_end_player_turn()
 
+func _play_sfx(stream: AudioStream) -> void:
+	if stream == null: return
+	_sfx.stream = stream
+	_sfx.play()
+	
+# sacudida corta del nodo (Node2D) sin romper su "grid"
+func _shake_node(n: Node2D, amt := 6.0, dur := 0.12) -> void:
+	if n == null: return
+	var t := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var orig := n.position
+	t.tween_property(n, "position", orig + Vector2(amt, 0), dur * 0.25)
+	t.tween_property(n, "position", orig - Vector2(amt, 0), dur * 0.5)
+	t.tween_property(n, "position", orig, dur * 0.25)
+
+# destello rojo breve
+func _flash_red(n: CanvasItem, dur := 0.18) -> void:
+	if n == null: return
+	var t := create_tween()
+	t.tween_property(n, "modulate", Color(1,0.25,0.25,1), dur*0.5)
+	t.tween_property(n, "modulate", Color(1,1,1,1), dur*0.5)
+
 # --- setup ---
 func _ready() -> void:
 	add_child(hud)
@@ -196,12 +233,31 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	queue_redraw()
 	
+	if not _sfx:
+		_sfx = AudioStreamPlayer.new()
+		add_child(_sfx)
+	
 	for e in enemies:
 		var n: Enemy = EnemyScene.instantiate()
 		add_child(n)
 		
 		n.set_cell(e["pos"], cell_size, false)
 		enemy_nodes.append(n)
+		
+	# --- Música ambiente ---
+	if bgm_stream:
+		_bgm = AudioStreamPlayer.new()
+		_bgm.stream = bgm_stream
+		_bgm.bus = bgm_bus
+		# intento de loop si el recurso lo soporta (Ogg/Wav)
+		if "loop" in bgm_stream:
+			bgm_stream.loop = true
+		_bgm.volume_db = -40.0  # arranca bajo para el fade-in
+		add_child(_bgm)
+		_bgm.play()
+		# fade-in suave
+		var tw := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_bgm, "volume_db", bgm_volume_db, bgm_fadein_sec)
 
 func _sync_player_sprite(animate: bool = true) -> void:
 	if player_node:
@@ -292,34 +348,89 @@ func _on_player_click(cell: Vector2i) -> void:
 
 	if moves_left <= 0:
 		_end_player_turn()
+		
+# animación y limpieza del enemigo muerto
+func _enemy_die(enemy_index: int) -> void:
+	if enemy_index < 0 or enemy_index >= enemy_nodes.size():
+		return
+	var node := enemy_nodes[enemy_index]
 
-func _player_attack(enemy_index:int) -> void:
-	player_attacked_this_turn = true   # <<--- NUEVO
-	var e = enemies[enemy_index]
-	var dmg = max(0, player["atk"] - e["def"])
-	e["hp"] -= dmg
-	if e["hp"] <= 0:
-		# eliminar data y sprite en el mismo índice
-		enemies.remove_at(enemy_index)
-		var node := enemy_nodes[enemy_index]
-		enemy_nodes.remove_at(enemy_index)
-		if is_instance_valid(node):
-			node.queue_free()
+	# sonido de muerte
+	_play_sfx(sfx_enemy_die)
+
+	# si hay animación "die", la usamos
+	var played_anim := false
+	if node.has_node("AnimationPlayer"):
+		var ap: AnimationPlayer = node.get_node("AnimationPlayer")
+		if ap.has_animation("die"):
+			ap.play("die")
+			played_anim = true
+			# Esperamos que termine (si la anim tiene "autoplay next" o track end):
+			await ap.animation_finished
+
+	# fallback: tween de desvanecer + escala
+	if not played_anim:
+		var t := create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		t.tween_property(node, "scale", node.scale * 0.1, 0.22)
+		t.parallel().tween_property(node, "modulate", Color(1,1,1,0), 0.22)
+		await t.finished
+
+	# remover data y nodo
+	enemies.remove_at(enemy_index)
+	enemy_nodes.remove_at(enemy_index)
+	if is_instance_valid(node):
+		node.queue_free()
+
 	_update_astar_solid_tiles()
-	_sync_enemy_sprites(false) # reacomoda índices por si quedaron corridos
+	_sync_enemy_sprites(false)
 	queue_redraw()
 
+func _player_attack(enemy_index:int) -> void:
+	player_attacked_this_turn = true
+
+	var e = enemies[enemy_index]
+	var target_node := enemy_nodes[enemy_index]
+
+	# --- FX de ataque del player ---
+	_play_sfx(sfx_player_attack)
+	_shake_node(player_node, 8.0, 0.15)
+	# Si tu Player.tscn tiene AnimationPlayer con "attack":
+	if player_node.has_node("AnimationPlayer"):
+		var ap: AnimationPlayer = player_node.get_node("AnimationPlayer")
+		if ap.has_animation("attack"):
+			ap.play("attack")
+
+	# --- cálculo de daño + FX de impacto enemigo ---
+	var dmg = max(0, player["atk"] - e["def"])
+	e["hp"] -= dmg
+
+	# impacto visual/sonoro
+	_play_sfx(sfx_enemy_hit)
+	_flash_red(target_node)
+	_shake_node(target_node, 10.0, 0.15)
+
+	# muerte
+	if e["hp"] <= 0:
+		await _enemy_die(enemy_index)   # <<< anim y cleanup async
+	else:
+		_update_astar_solid_tiles()
+		_sync_enemy_sprites(false)
+		queue_redraw()
+
 func _end_player_turn() -> void:
+	# pequeña pausa para claridad
+	await get_tree().create_timer(0.5).timeout
+
 	phase = Phase.ENEMIES
 	_enemy_phase()
 	_sync_enemy_sprites(true)
-	
+
 	phase = Phase.PLAYER
 	moves_left = player["mv"]
 	player_attacked_this_turn = false
 	_update_astar_solid_tiles()
 	queue_redraw()
-	_maybe_auto_end_turn()   
+	_maybe_auto_end_turn()
 
 func _enemy_phase() -> void:
 	# 1) mover con presupuesto (2/3 por paso) hacia adyacencia
@@ -366,6 +477,13 @@ func _enemy_phase() -> void:
 		var def_val = max(1, int(player["def"]))
 		var dmg := int(floor(float(total_atk) / float(def_val)))
 		player["hp"] -= dmg
+
+		# FX de golpe al player
+		_flash_red(player_node)
+		_shake_node(player_node, 10.0, 0.15)
+		_play_sfx(sfx_enemy_hit)
+		player["hp"] -= dmg
+		
 	if player["hp"] <= 0:
 		print("Player defeated")
 		
