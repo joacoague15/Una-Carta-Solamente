@@ -32,6 +32,7 @@ var enemy_nodes: Array[Enemy] = []
 @export var sfx_player_attack: AudioStream
 @export var sfx_enemy_hit:     AudioStream
 @export var sfx_enemy_die:     AudioStream
+@export var sfx_block: 		   AudioStream
 
 # --- Música ambiente ---
 @export var bgm_stream: AudioStream 
@@ -175,6 +176,8 @@ func _reach_cost(a: Vector2i, b: Vector2i) -> int:
 	return diag * 3 + orto * 2
 	
 var player_attacked_this_turn := false
+var _is_ending_turn := false
+var _turn_ended_this_click := false
 
 func _can_attack(attacker: Dictionary, target_pos: Vector2i) -> bool:
 	return _reach_cost(attacker["pos"], target_pos) <= int(attacker["rng"])
@@ -185,14 +188,17 @@ func _has_attack_target() -> bool:
 			return true
 	return false
 
-func _maybe_auto_end_turn() -> void:
+func _maybe_auto_end_turn() -> bool:
 	# Si no hay UI de draft activa, evaluamos auto-fin
-	if is_drafting:
-		return
-	var no_moves := moves_left <= 1  # con tu métrica 2/3, 1 o 0 ya no alcanza para moverse
+	if is_drafting or _is_ending_turn:
+		return false
+	var no_moves := moves_left <= 1
 	var can_attack := _has_attack_target()
+	
 	if no_moves and (player_attacked_this_turn or not can_attack):
-		_end_player_turn()
+		await _end_player_turn()
+		return true
+	return false
 
 func _play_sfx(stream: AudioStream) -> void:
 	if stream == null: return
@@ -213,6 +219,12 @@ func _flash_red(n: CanvasItem, dur := 0.18) -> void:
 	if n == null: return
 	var t := create_tween()
 	t.tween_property(n, "modulate", Color(1,0.25,0.25,1), dur*0.5)
+	t.tween_property(n, "modulate", Color(1,1,1,1), dur*0.5)
+	
+func _flash_block(n: CanvasItem, dur := 0.18) -> void:
+	if n == null: return
+	var t := create_tween()
+	t.tween_property(n, "modulate", Color(0.6,0.8,1.0,1), dur*0.5)
 	t.tween_property(n, "modulate", Color(1,1,1,1), dur*0.5)
 
 # --- setup ---
@@ -327,19 +339,19 @@ func _input(event: InputEvent) -> void:
 		_on_player_click(cell)
 
 func _on_player_click(cell: Vector2i) -> void:
-	if not _is_inside(cell) or moves_left <= 0:
+	if not _is_inside(cell) or moves_left <= 0 or _is_ending_turn:
 		return
 
 	# ¿click a un enemigo?
 	var idx := _enemy_index_at(cell)
 	if idx != -1:
 		if _can_attack(player, enemies[idx]["pos"]):
-			_player_attack(idx)
-			# moves_left ya queda como esté; dejamos que decida _maybe_auto_end_turn()
-			_update_astar_solid_tiles()
-			_sync_player_sprite()
-			queue_redraw()
-			_maybe_auto_end_turn()   # <<--- NUEVO
+			# Esperamos a que termine la animación/FX del ataque
+			await _player_attack(idx)
+
+			# Cerramos el turno SIEMPRE tras atacar (con guard para evitar doble cierre)
+			if not _is_ending_turn:
+				await _end_player_turn()
 		return
 
 	# Si es celda vacía: sólo adyacente y con puntos suficientes
@@ -353,10 +365,15 @@ func _on_player_click(cell: Vector2i) -> void:
 	_update_astar_solid_tiles()
 	_sync_player_sprite()
 	queue_redraw()
-	_maybe_auto_end_turn()
 
-	if moves_left <= 0:
-		_end_player_turn()
+	# Intento auto-fin sólo para movimiento (ataque ya fuerza fin arriba)
+	var ended := await _maybe_auto_end_turn()
+	if ended:
+		return
+
+	# Si no terminó automáticamente y ya no hay movimientos, cerramos turno (con guard)
+	if moves_left <= 0 and not _is_ending_turn:
+		await _end_player_turn()
 		
 # animación y limpieza del enemigo muerto
 func _enemy_die(enemy_index: int) -> void:
@@ -425,11 +442,15 @@ func _player_attack(enemy_index:int) -> void:
 		queue_redraw()
 
 func _end_player_turn() -> void:
-	# pequeña pausa para claridad
+	if _is_ending_turn:
+		return
+	_is_ending_turn = true
+	
+	# pausa de claridad
 	await get_tree().create_timer(0.5).timeout
-
+	
 	phase = Phase.ENEMIES
-	_enemy_phase()
+	await _enemy_phase()
 	_sync_enemy_sprites(true)
 
 	phase = Phase.PLAYER
@@ -437,65 +458,88 @@ func _end_player_turn() -> void:
 	player_attacked_this_turn = false
 	_update_astar_solid_tiles()
 	queue_redraw()
-	_maybe_auto_end_turn()
+	await _maybe_auto_end_turn()
+	
+	_is_ending_turn = false
 
 func _enemy_phase() -> void:
-	# 1) mover con presupuesto (2/3 por paso) hacia adyacencia
-	for i in enemies.size():
+	# Procesamos enemigo por enemigo: mover -> pequeña pausa -> atacar (si puede)
+	for i in range(enemies.size()):
+		# si el player ya murió, corta la fase
+		if player["hp"] <= 0:
+			break
+
+		# --- MOVIMIENTO ---
 		var budget := int(enemies[i]["mv"])
-		if budget < 2:
-			continue
+		if budget >= 2:
+			_update_astar_solid_tiles()
+			astar.set_point_solid(enemies[i]["pos"], false)
+
+			# si no está adyacente, buscamos la mejor celda adyacente al player
+			if _manhattan(enemies[i]["pos"], player["pos"]) != 1:
+				var goals := _adjacent_cells(player["pos"]).filter(
+					func(c): return _is_inside(c) and not _is_blocked_for_enemy(c, i)
+				)
+				if goals.is_empty():
+					goals = [player["pos"]]
+
+				var best_path := []
+				for g in goals:
+					var p := astar.get_id_path(enemies[i]["pos"], g)
+					if p.is_empty(): 
+						continue
+					if best_path.is_empty() or p.size() < best_path.size():
+						best_path = p
+
+				if not best_path.is_empty():
+					var curr = enemies[i]["pos"]
+					for step_idx in range(1, best_path.size()):
+						var nxt: Vector2i = best_path[step_idx]
+						if _is_blocked_for_enemy(nxt, i):
+							break
+						var step_cost := _move_cost(curr, nxt)
+						if step_cost == -1 or budget < step_cost:
+							break
+						curr = nxt
+						budget -= step_cost
+						enemies[i]["pos"] = curr
+						# si ya quedó adyacente, frenamos
+						if _manhattan(enemies[i]["pos"], player["pos"]) == 1:
+							break
 
 		_update_astar_solid_tiles()
-		astar.set_point_solid(enemies[i]["pos"], false)
+		_sync_enemy_sprites(true)
+		queue_redraw()
 
-		if _manhattan(enemies[i]["pos"], player["pos"]) != 1:
-			var goals := _adjacent_cells(player["pos"]).filter(
-				func(c): return _is_inside(c) and not _is_blocked_for_enemy(c, i)
-			)
-			if goals.is_empty():
-				goals = [player["pos"]]
-			var best_path := []
-			for g in goals:
-				var p := astar.get_id_path(enemies[i]["pos"], g)
-				if p.is_empty(): continue
-				if best_path.is_empty() or p.size() < best_path.size():
-					best_path = p
-			if not best_path.is_empty():
-				var curr = enemies[i]["pos"]
-				for step_idx in range(1, best_path.size()):
-					var nxt: Vector2i = best_path[step_idx]
-					if _is_blocked_for_enemy(nxt, i): break
-					var step_cost := _move_cost(curr, nxt)
-					if step_cost == -1 or budget < step_cost: break
-					curr = nxt
-					budget -= step_cost
-					enemies[i]["pos"] = curr
-					if _manhattan(enemies[i]["pos"], player["pos"]) == 1:
-						break
-		_update_astar_solid_tiles()
+		# --- ESPERA 0.2s ANTES DE ATACAR ---
+		await get_tree().create_timer(0.2).timeout
 
-	# 2) daño combinado por alcance (2/3)
-	var total_atk := 0
-	for e in enemies:
+		# --- ATAQUE (si está en alcance) ---
+		var e = enemies[i]
 		if _can_attack(e, player["pos"]):
-			total_atk += int(e["atk"])
-	if total_atk > 0:
-		var def_val = max(1, int(player["def"]))
-		var dmg := int(floor(float(total_atk) / float(def_val)))
-		player["hp"] -= dmg
+			# daño por enemigo individual
+			var total_atk := int(e["atk"])
+			var def_val = max(1, int(player["def"]))
+			var dmg := int(floor(float(total_atk) / float(def_val)))
+			if dmg > 0:
+				player["hp"] -= dmg
 
-		# FX de golpe al player
-		_flash_red(player_node)
-		_shake_node(player_node, 10.0, 0.15)
-		_play_sfx(sfx_enemy_hit)
-		player["hp"] -= dmg
-		
-	if player["hp"] <= 0:
-		print("Player defeated")
-		
-	if hud:
-		hud.set_stats(player)
+				# FX de golpe al player
+				_flash_red(player_node)
+				_shake_node(player_node, 10.0, 0.15)
+				_play_sfx(sfx_enemy_hit)
+
+				if hud:
+					hud.set_stats(player)
+					
+			else:
+				_flash_block(player_node)
+				_shake_node(player_node, 4.0, 0.12)
+				_play_sfx(sfx_block)
+
+			if player["hp"] <= 0:
+				print("Player defeated")
+				break
 
 # --- DRAFT UI (dibujado + clicks) ---
 func _draft_layout() -> Dictionary:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://b206ltc27s43y"]
+[gd_scene load_steps=14 format=3 uid="uid://b206ltc27s43y"]
 
 [ext_resource type="Script" path="res://main.gd" id="1_ig7tw"]
 [ext_resource type="Texture2D" uid="uid://3dh1elnqmmqo" path="res://heart_icon.png" id="2_qcox4"]
@@ -10,6 +10,7 @@
 [ext_resource type="Texture2D" uid="uid://dc43bwr0ht8ow" path="res://range_icon.png" id="6_lqtqx"]
 [ext_resource type="AudioStream" uid="uid://dg02522eg2qf7" path="res://level_1_enemy_death.wav" id="7_5es6v"]
 [ext_resource type="Script" path="res://canvas_layer.gd" id="7_g26h0"]
+[ext_resource type="AudioStream" uid="uid://cdaneq6efa30d" path="res://player_block.wav" id="8_1c77k"]
 [ext_resource type="AudioStream" uid="uid://c83jxnvmg03lv" path="res://main_soundtrack.mp3" id="8_cshtv"]
 [ext_resource type="FontFile" uid="uid://dgbpntfe80w8s" path="res://mountain_king.ttf" id="12_ve3jd"]
 
@@ -24,6 +25,7 @@ confirm_margin = Vector2(0, 16)
 sfx_player_attack = ExtResource("5_xrv8e")
 sfx_enemy_hit = ExtResource("6_agn1j")
 sfx_enemy_die = ExtResource("7_5es6v")
+sfx_block = ExtResource("8_1c77k")
 bgm_stream = ExtResource("8_cshtv")
 
 [node name="UI" type="CanvasLayer" parent="."]
