@@ -1,5 +1,5 @@
 extends Node2D
-class_name Level1
+class_name Level2
 
 @onready var PlayerScene := preload("res://Player.tscn")
 @onready var EnemyScene := preload("res://Enemy.tscn")
@@ -55,7 +55,7 @@ var _bgm: AudioStreamPlayer
 var _sfx: AudioStreamPlayer
 
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
-const E_STATS = { "hp": 2, "mv": 5, "atk": 4, "def": 4, "rng": 3 }
+const E_STATS = { "hp": 3, "mv": 4, "atk": 5, "def": 4, "rng": 4 }
 
 var astar := AStarGrid2D.new()
 var rng := RandomNumberGenerator.new()
@@ -327,58 +327,71 @@ func _push_enemy_hp_to_hud() -> void:
 # --- setup ---
 func _ready() -> void:
 	add_child(hud)
-	
+
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
-	
-	_layout_board()  # primero escala/centra el tablero
-	player_node.set_cell(player["pos"], cell_size, false)  # sin animación
-	
+
+	_layout_board()
+	player_node.set_cell(player["pos"], cell_size, false)
+
 	rng.randomize()
-	_roll_dice()  # mostrar UI de dados al inicio
+
+	# --- PERSISTENCIA DE VIDA DEL PLAYER ---
+	# Mantener HP que traemos del nivel 1 (sin tocar el máximo, si lo usás)
+	player["hp"] = max(0, int(RunState.player_hp))
+
+	# --- RESET DE EXTRAS DE DADOS ---
+	player["mv"]  = P_STATS["mv"]
+	player["atk"] = P_STATS["atk"]
+	player["def"] = P_STATS["def"]
+	player["rng"] = P_STATS["rng"]
+	moves_left = player["mv"]   # o dejalo; se volverá a setear al confirmar el draft
+
+	# --- REROLL DE DADOS COMO EN NIVEL 1 ---
+	_roll_dice()                 # <- activa drafting, borra asignaciones previas
+	is_drafting = true
+	player_attacked_this_turn = false
 
 	_init_astar()
 	_update_astar_solid_tiles()
 	get_viewport().size_changed.connect(_on_viewport_resized)
 	queue_redraw()
-	
-	_ensure_enemy_max_hp()
-	_push_enemy_hp_to_hud()
-	
+
 	if not _sfx:
 		_sfx = AudioStreamPlayer.new()
 		add_child(_sfx)
-	
+
+	# Instanciar enemigos
 	for e in enemies:
 		var n: Enemy = EnemyScene.instantiate()
 		add_child(n)
-		
 		n.set_cell(e["pos"], cell_size, false)
 		enemy_nodes.append(n)
-		
-	# --- Música ambiente ---
+
+	# Música/HUD (igual que L1)
 	if bgm_stream:
 		_bgm = AudioStreamPlayer.new()
 		_bgm.stream = bgm_stream
 		_bgm.bus = bgm_bus
-		# intento de loop si el recurso lo soporta (Ogg/Wav)
-		if "loop" in bgm_stream:
-			bgm_stream.loop = true
-		_bgm.volume_db = -40.0  # arranca bajo para el fade-in
+		if "loop" in bgm_stream: bgm_stream.loop = true
+		_bgm.volume_db = -40.0
 		add_child(_bgm)
 		_bgm.play()
-		# fade-in suave
 		var tw := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 		tw.tween_property(_bgm, "volume_db", bgm_volume_db, bgm_fadein_sec)
-		
-		if hud:
-			hud.set_enemy_stats({
-				"mv": E_STATS["mv"],
-				"atk": E_STATS["atk"],
-				"def": E_STATS["def"],
-				"rng": E_STATS["rng"]
-			})
-			hud.set_stats(player)
+
+	if hud:
+		hud.set_enemy_stats({
+			"mv": E_STATS["mv"],
+			"atk": E_STATS["atk"],
+			"def": E_STATS["def"],
+			"rng": E_STATS["rng"]
+		})
+		hud.set_stats(player)
+
+	# preparar HP máx de enemigos + enviar al HUD
+	_ensure_enemy_max_hp()
+	_push_enemy_hp_to_hud()
 
 func _sync_player_sprite(animate: bool = true) -> void:
 	if player_node:
@@ -423,12 +436,12 @@ func _on_victory() -> void:
 	
 	outcome = Outcome.VICTORY
 	if hud and "show_end_banner" in hud:
-		hud.show_end_banner("¡Victoria!", "Cargando Nivel 2…", Color(0.7,1.0,0.7,1.0))
+		hud.show_end_banner("¡Victoria!", "Fin de la demo", Color(0.7,1.0,0.7,1.0))
 	await get_tree().create_timer(1.0).timeout
 	_goto_level2()
 
 func _goto_level2() -> void:
-	var path := "res://main2.tscn"
+	var path := "res://Level2.tscn"
 	if ResourceLoader.exists(path):
 		get_tree().change_scene_to_file(path)
 	else:
