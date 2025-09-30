@@ -507,8 +507,6 @@ func _on_player_click(cell: Vector2i) -> void:
 			
 			if outcome != Outcome.NONE:
 				return
-			if not _is_ending_turn:
-				await _end_player_turn()
 
 			# Cerramos el turno SIEMPRE tras atacar (con guard para evitar doble cierre)
 			if not _is_ending_turn:
