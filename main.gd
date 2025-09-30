@@ -55,9 +55,8 @@ var _bgm: AudioStreamPlayer
 var _sfx: AudioStreamPlayer
 
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
-const E_STATS = { "hp": 2, "mv": 5, "atk": 4, "def": 4, "rng": 3 }
+var   E_BASE  = { "hp": 2, "mv": 5, "atk": 4, "def": 4, "rng": 3 } 
 
-var displayed_dice: Array[int] = [1, 1, 1]  # lo que se dibuja
 var is_rolling_dice := false                # bloquea interacción mientras roda
 
 var astar := AStarGrid2D.new()
@@ -72,31 +71,22 @@ var draft_hovered_die := -1
 var draft_hovered_confirm := false
 var draft_pressed_confirm := false
 
-func _animate_dice_roll(final_vals: Array[int], duration := 0.75, step := 0.06) -> void:
-	is_rolling_dice = true
-	var t := 0.0
-	while t < duration:
-		for i in range(3):
-			displayed_dice[i] = rng.randi_range(1, 6)
-		queue_redraw()
-		await get_tree().create_timer(step).timeout
-		t += step
-	# asentar valores finales
-	displayed_dice = final_vals.duplicate()
-	is_rolling_dice = false
-	queue_redraw()
-
-
-func _roll_dice() -> void:
-	# tirada final (no visible aún)
-	draft_dice = [rng.randi_range(1, 6), rng.randi_range(1, 6), rng.randi_range(1, 6)]
+func _roll_dice_final() -> void:
+	draft_dice = [RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6)]
 	draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
 	draft_selected_die = -1
 	is_drafting = true
-
-	# arranca animación de roll (no bloquear el hilo llamador)
-	_animate_dice_roll(draft_dice, 0.75, 0.06) # dur=0.75s, paso=0.06s
 	queue_redraw()
+
+func _roll_dice_anim(duration := 0.6) -> void:
+	is_rolling_dice = true
+	var steps := int(ceil(duration / 0.06))
+	for s in steps:
+		draft_dice = [RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6)]
+		queue_redraw()
+		await get_tree().create_timer(0.06).timeout
+	_roll_dice_final()
+	is_rolling_dice = false
 
 func _all_assigned() -> bool:
 	return draft_assign_idx["mv"] != -1 and draft_assign_idx["atk"] != -1 and draft_assign_idx["def"] != -1
@@ -127,20 +117,20 @@ var enemies := [
 	{
 		"name": "goblin1",
 		"pos": rc(1, 4),
-		"hp": E_STATS["hp"],
-		"mv": E_STATS["mv"],
-		"atk": E_STATS["atk"],
-		"def": E_STATS["def"],
-		"rng": E_STATS["rng"],
+		"hp": E_BASE["hp"],
+		"mv": E_BASE["mv"],
+		"atk": E_BASE["atk"],
+		"def": E_BASE["def"],
+		"rng": E_BASE["rng"],
 	},
 	{
 		"name": "goblin2",
 		"pos": rc(3, 4),
-		"hp": E_STATS["hp"],
-		"mv": E_STATS["mv"],
-		"atk": E_STATS["atk"],
-		"def": E_STATS["def"],
-		"rng": E_STATS["rng"],
+		"hp": E_BASE["hp"],
+		"mv": E_BASE["mv"],
+		"atk": E_BASE["atk"],
+		"def": E_BASE["def"],
+		"rng": E_BASE["rng"],
 	},
 ]
 
@@ -345,11 +335,75 @@ func _push_enemy_hp_to_hud() -> void:
 
 		y += enemy_hp_bar_size.y + 6
 
+func _rc_from_v2i(v: Vector2i) -> Vector2i:
+	# tu rc(row,col) es rc(1,1) -> (0,0). Acá ya viene en coords 0-based.
+	return v
+
+func _build_level_from_runstate() -> void:
+	var def := RunState.get_level_def(RunState.level)
+
+	# --- Player ---
+	player = {
+		"pos": _rc_from_v2i(def["player_start"]),
+		"hp": RunState.player_hp,          # se mantiene
+		"mv": P_STATS["mv"],
+		"atk": P_STATS["atk"],
+		"def": P_STATS["def"],
+		"rng": P_STATS["rng"],
+	}
+
+	# --- Enemigos base por nivel ---
+	E_BASE = def["enemy_base"].duplicate(true)
+
+	# --- Pilares ---
+	pillars.clear()
+	for p: Vector2i in def["pillars"]:
+		pillars[p] = true
+
+	# --- Enemigos ---
+	enemies.clear()
+	for ei in def["enemies"]:
+		enemies.append({
+			"name": String(ei.get("name","enemy")),
+			"pos": _rc_from_v2i(ei["pos"]),
+			"hp":  E_BASE["hp"],
+			"mv":  E_BASE["mv"],
+			"atk": E_BASE["atk"],
+			"def": E_BASE["def"],
+			"rng": E_BASE["rng"],
+			"max_hp": E_BASE["hp"],
+		})
+
+	# --- Nodos enemigos (reset limpio) ---
+	for n in enemy_nodes:
+		if is_instance_valid(n): n.queue_free()
+	enemy_nodes.clear()
+
+	# --- Sin turn stats asignados aún, se tiran dados otra vez ---
+	moves_left = P_STATS["mv"]  # valor base, pero hasta confirmar draft no jugará
+	is_drafting = true
+	player_attacked_this_turn = false
+	_update_astar_solid_tiles()
+	_sync_player_sprite(false)
+	_sync_enemy_sprites(false)
+	if hud:
+		hud.set_enemy_stats({
+			"mv": E_BASE["mv"], "atk": E_BASE["atk"], "def": E_BASE["def"], "rng": E_BASE["rng"]
+		})
+		hud.set_stats(player)
+	_push_enemy_hp_to_hud()
+	queue_redraw()
+
+	# animación de dado + set final
+	await _roll_dice_anim(0.6)
+
 
 # --- setup ---
 func _ready() -> void:
-	add_child(hud)
+	if not RunState.initialized:
+		RunState.reset_run()
 	
+	add_child(hud)
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
 	
@@ -357,7 +411,7 @@ func _ready() -> void:
 	player_node.set_cell(player["pos"], cell_size, false)  # sin animación
 	
 	rng.randomize()
-	_roll_dice()  # mostrar UI de dados al inicio
+	_roll_dice_final()  # mostrar UI de dados al inicio
 
 	_init_astar()
 	_update_astar_solid_tiles()
@@ -370,6 +424,8 @@ func _ready() -> void:
 	if not _sfx:
 		_sfx = AudioStreamPlayer.new()
 		add_child(_sfx)
+		
+	await _build_level_from_runstate()
 	
 	for e in enemies:
 		var n: Enemy = EnemyScene.instantiate()
@@ -395,10 +451,10 @@ func _ready() -> void:
 		
 		if hud:
 			hud.set_enemy_stats({
-				"mv": E_STATS["mv"],
-				"atk": E_STATS["atk"],
-				"def": E_STATS["def"],
-				"rng": E_STATS["rng"]
+				"mv": E_BASE["mv"],
+				"atk": E_BASE["atk"],
+				"def": E_BASE["def"],
+				"rng": E_BASE["rng"]
 			})
 			hud.set_stats(player)
 
@@ -439,15 +495,14 @@ func _update_astar_solid_tiles() -> void:
 		
 func _on_victory() -> void:
 	if outcome != Outcome.NONE: return
-	
-	# <<< guardar HP actual para el próximo nivel
 	RunState.player_hp = int(player["hp"])
-	
 	outcome = Outcome.VICTORY
 	if hud and "show_end_banner" in hud:
-		hud.show_end_banner("¡Victoria!", "Cargando Nivel 2…", Color(0.7,1.0,0.7,1.0))
+		hud.show_end_banner("¡Victoria!", "Cargando siguiente nivel…", Color(0.7,1.0,0.7,1.0))
 	await get_tree().create_timer(1.0).timeout
-	_goto_level2()
+	RunState.next_level()
+	outcome = Outcome.NONE
+	await _build_level_from_runstate()
 
 func _goto_level2() -> void:
 	var path := "res://main2.tscn"
@@ -455,8 +510,7 @@ func _goto_level2() -> void:
 		get_tree().change_scene_to_file(path)
 	else:
 		if hud and "show_end_banner" in hud:
-			hud.show_end_banner("¡Victoria!", "Nivel 2 aún no existe (res://Level2.tscn).", Color(0.7,1.0,0.7,1.0))
-		print("Level2.tscn no existe.")
+			hud.show_end_banner("¡Victoria!", "Cargando siguiente nivel…", Color(0.7,1.0,0.7,1.0))
 
 func _on_defeat() -> void:
 	if outcome != Outcome.NONE: return
@@ -464,17 +518,21 @@ func _on_defeat() -> void:
 	if hud and "show_end_banner" in hud:
 		hud.show_end_banner("Derrota", "Clic o tecla para reiniciar", Color(1.0,0.6,0.6,1.0))
 
-
 # --- input / turns ---
 func _input(event: InputEvent) -> void:
 	if outcome != Outcome.NONE:
 		if outcome == Outcome.DEFEAT:
 			if (event is InputEventMouseButton and not event.pressed) or (event is InputEventKey and event.pressed):
-				get_tree().reload_current_scene()
+				RunState.reset_run()
+				outcome = Outcome.NONE
+				await _build_level_from_runstate()
 		return
 	
 	# Primero, si estamos en la UI de dados, consumimos el input ahí.
 	if is_drafting:
+		if is_rolling_dice:
+			return 
+		
 		var local_pos := to_local(get_viewport().get_mouse_position())
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
@@ -576,11 +634,9 @@ func _enemy_die(enemy_index: int) -> void:
 
 func _player_attack(enemy_index:int) -> void:
 	player_attacked_this_turn = true
-
 	var e = enemies[enemy_index]
 	var target_node := enemy_nodes[enemy_index]
 
-	# --- FX de ataque del player ---
 	_play_sfx(sfx_player_attack)
 	_shake_node(player_node, 8.0, 0.15)
 	if player_node.has_node("AnimationPlayer"):
@@ -588,19 +644,16 @@ func _player_attack(enemy_index:int) -> void:
 		if ap.has_animation("attack"):
 			ap.play("attack")
 
-	# --- cálculo de daño ---
-	var dmg = player["atk"] - e["def"]
+	var dmg_raw := int(player["atk"]) - int(e["def"])
+	var dmg = max(0, dmg_raw)
 
 	if dmg <= 0:
-		# BLOQUEO (no baja HP)
-		_play_sfx(sfx_block)
+		# BLOQUEO (sin daño)
 		_flash_block(target_node)
 		_shake_node(target_node, 4.0, 0.12)
-		# actualizar HUD por si mostrás números, aunque no cambió la vida
-		_push_enemy_hp_to_hud()
+		_play_sfx(sfx_block)
 		return
 
-	# --- daño normal ---
 	e["hp"] -= dmg
 	_play_sfx(sfx_enemy_hit)
 	_flash_red(target_node)
@@ -922,7 +975,7 @@ func _draw_draft_ui() -> void:
 		draw_rect(r, bg_color, true)
 		draw_rect(r, Color(1,1,1,1), false, 2.0)
 
-		var txt := str(displayed_dice[i])
+		var txt := str(draft_dice[i])
 		var txt_size := font.get_string_size(txt, fs)
 		var pos := Vector2(
 			r.position.x + (r.size.x - txt_size.x) * 0.5,
