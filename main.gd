@@ -57,6 +57,9 @@ var _sfx: AudioStreamPlayer
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
 const E_STATS = { "hp": 2, "mv": 5, "atk": 4, "def": 4, "rng": 3 }
 
+var displayed_dice: Array[int] = [1, 1, 1]  # lo que se dibuja
+var is_rolling_dice := false                # bloquea interacción mientras roda
+
 var astar := AStarGrid2D.new()
 var rng := RandomNumberGenerator.new()
 
@@ -69,11 +72,30 @@ var draft_hovered_die := -1
 var draft_hovered_confirm := false
 var draft_pressed_confirm := false
 
+func _animate_dice_roll(final_vals: Array[int], duration := 0.75, step := 0.06) -> void:
+	is_rolling_dice = true
+	var t := 0.0
+	while t < duration:
+		for i in range(3):
+			displayed_dice[i] = rng.randi_range(1, 6)
+		queue_redraw()
+		await get_tree().create_timer(step).timeout
+		t += step
+	# asentar valores finales
+	displayed_dice = final_vals.duplicate()
+	is_rolling_dice = false
+	queue_redraw()
+
+
 func _roll_dice() -> void:
+	# tirada final (no visible aún)
 	draft_dice = [rng.randi_range(1, 6), rng.randi_range(1, 6), rng.randi_range(1, 6)]
 	draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
 	draft_selected_die = -1
 	is_drafting = true
+
+	# arranca animación de roll (no bloquear el hilo llamador)
+	_animate_dice_roll(draft_dice, 0.75, 0.06) # dur=0.75s, paso=0.06s
 	queue_redraw()
 
 func _all_assigned() -> bool:
@@ -563,27 +585,33 @@ func _player_attack(enemy_index:int) -> void:
 	# --- FX de ataque del player ---
 	_play_sfx(sfx_player_attack)
 	_shake_node(player_node, 8.0, 0.15)
-	# Si tu Player.tscn tiene AnimationPlayer con "attack":
 	if player_node.has_node("AnimationPlayer"):
 		var ap: AnimationPlayer = player_node.get_node("AnimationPlayer")
 		if ap.has_animation("attack"):
 			ap.play("attack")
 
-	# --- cálculo de daño + FX de impacto enemigo ---
-	var dmg = max(0, player["atk"] - e["def"])
+	# --- cálculo de daño ---
+	var dmg = player["atk"] - e["def"]
+
+	if dmg <= 0:
+		# BLOQUEO (no baja HP)
+		_play_sfx(sfx_block)
+		_flash_block(target_node)
+		_shake_node(target_node, 4.0, 0.12)
+		# actualizar HUD por si mostrás números, aunque no cambió la vida
+		_push_enemy_hp_to_hud()
+		return
+
+	# --- daño normal ---
 	e["hp"] -= dmg
-	
-	# impacto visual/sonoro
 	_play_sfx(sfx_enemy_hit)
 	_flash_red(target_node)
 	_shake_node(target_node, 10.0, 0.15)
 	_push_enemy_hp_to_hud()
 
-	# muerte
 	if e["hp"] <= 0:
-		await _enemy_die(enemy_index)   # <<< anim y cleanup async
+		await _enemy_die(enemy_index)
 		_push_enemy_hp_to_hud()
-		# ¿Victoria?
 		if enemies.is_empty():
 			await _on_victory()
 			return
@@ -763,6 +791,9 @@ func _draft_layout() -> Dictionary:
 }
 
 func _handle_draft_hover(local_pos: Vector2) -> void:
+	if is_rolling_dice:
+		return
+	
 	var L := _draft_layout()
 	var old_hovered_die := draft_hovered_die
 	var old_hovered_confirm := draft_hovered_confirm
@@ -785,6 +816,9 @@ func _handle_draft_hover(local_pos: Vector2) -> void:
 		queue_redraw()
 
 func _handle_draft_press(local_pos: Vector2) -> void:
+	if is_rolling_dice:
+		return
+	
 	var L := _draft_layout()
 	var can_confirm := _all_assigned()
 	var old_pressed := draft_pressed_confirm
@@ -805,6 +839,9 @@ func _handle_draft_release() -> void:
 		queue_redraw()
 
 func _handle_draft_click(local_pos: Vector2) -> void:
+	if is_rolling_dice:
+		return
+	
 	var L := _draft_layout()
 	# Click en dados
 	for i in draft_dice.size():
@@ -839,7 +876,7 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 			return
 
 	# Click en Confirmar
-	var can_confirm := _all_assigned()
+	var can_confirm := _all_assigned() and not is_rolling_dice
 	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
 		player["mv"]  = P_STATS["mv"]  + draft_dice[draft_assign_idx["mv"]]
 		player["atk"] = P_STATS["atk"] + draft_dice[draft_assign_idx["atk"]]
@@ -887,7 +924,7 @@ func _draw_draft_ui() -> void:
 		draw_rect(r, bg_color, true)
 		draw_rect(r, Color(1,1,1,1), false, 2.0)
 
-		var txt := str(draft_dice[i])
+		var txt := str(displayed_dice[i])
 		var txt_size := font.get_string_size(txt, fs)
 		var pos := Vector2(
 			r.position.x + (r.size.x - txt_size.x) * 0.5,

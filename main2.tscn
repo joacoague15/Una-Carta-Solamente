@@ -1,9 +1,14 @@
-[gd_scene load_steps=9 format=3 uid="uid://mwj8iy6hngkx"]
+[gd_scene load_steps=14 format=3 uid="uid://mwj8iy6hngkx"]
 
 [ext_resource type="Script" path="res://main2.gd" id="1_2fqsa"]
 [ext_resource type="Texture2D" uid="uid://bb11pbuyfsv81" path="res://speed.png" id="2_ncfe5"]
 [ext_resource type="Texture2D" uid="uid://dwfu0t13bx1bv" path="res://attack_icon.png" id="3_jfho1"]
 [ext_resource type="Texture2D" uid="uid://cngn5ixt72jb7" path="res://defense_icon.png" id="4_m4lwc"]
+[ext_resource type="AudioStream" uid="uid://deyyfjcqrll8c" path="res://player_attack.wav" id="5_cb61f"]
+[ext_resource type="AudioStream" uid="uid://byene1gercvm" path="res://level_1_enemy_attack.wav" id="6_n46xs"]
+[ext_resource type="AudioStream" uid="uid://dg02522eg2qf7" path="res://level_1_enemy_death.wav" id="7_a455f"]
+[ext_resource type="AudioStream" uid="uid://cdaneq6efa30d" path="res://player_block.wav" id="8_pnd0g"]
+[ext_resource type="AudioStream" uid="uid://c83jxnvmg03lv" path="res://main_soundtrack.mp3" id="9_fe07l"]
 [ext_resource type="Script" path="res://canvas_layer.gd" id="10_46d0k"]
 [ext_resource type="Texture2D" uid="uid://3dh1elnqmmqo" path="res://heart_icon.png" id="11_ebcq8"]
 [ext_resource type="Texture2D" uid="uid://dc43bwr0ht8ow" path="res://range_icon.png" id="12_g7wps"]
@@ -13,7 +18,15 @@
 script = ExtResource("1_2fqsa")
 grid_border_color = Color(1, 1, 1, 1)
 dice_right_margin = 100.0
+slot_icon_mv = ExtResource("2_ncfe5")
+slot_icon_atk = ExtResource("3_jfho1")
+slot_icon_def = ExtResource("4_m4lwc")
 confirm_margin = Vector2(0, 16)
+sfx_player_attack = ExtResource("5_cb61f")
+sfx_enemy_hit = ExtResource("6_n46xs")
+sfx_enemy_die = ExtResource("7_a455f")
+sfx_block = ExtResource("8_pnd0g")
+bgm_stream = ExtResource("9_fe07l")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
