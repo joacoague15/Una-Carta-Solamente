@@ -386,6 +386,7 @@ func _build_level_from_runstate() -> void:
 	_update_astar_solid_tiles()
 	_sync_player_sprite(false)
 	_sync_enemy_sprites(false)
+	_spawn_enemy_nodes(false)
 	if hud:
 		hud.set_enemy_stats({
 			"mv": E_BASE["mv"], "atk": E_BASE["atk"], "def": E_BASE["def"], "rng": E_BASE["rng"]
@@ -396,14 +397,17 @@ func _build_level_from_runstate() -> void:
 
 	# animación de dado + set final
 	await _roll_dice_anim(0.6)
-
+	
+	phase = Phase.PLAYER
+	moves_left = player["mv"]
+	player_attacked_this_turn = false
+	_is_ending_turn = false
 
 # --- setup ---
 func _ready() -> void:
 	if not RunState.initialized:
 		RunState.reset_run()
 	
-	add_child(hud)
 	player_node = PlayerScene.instantiate()
 	add_child(player_node)
 	
@@ -457,6 +461,8 @@ func _ready() -> void:
 				"rng": E_BASE["rng"]
 			})
 			hud.set_stats(player)
+			
+	await _build_level_from_runstate()
 
 func _sync_player_sprite(animate: bool = true) -> void:
 	if player_node:
@@ -466,6 +472,27 @@ func _sync_enemy_sprites(animate: bool = true) -> void:
 	var count = min(enemy_nodes.size(), enemies.size())
 	for i in count:
 		enemy_nodes[i].set_cell(enemies[i]["pos"], cell_size, animate)
+		
+# --- NUEVO: spawnea (o respawnea) los nodos de enemigos según el array `enemies` ---
+func _spawn_enemy_nodes(animate: bool = false) -> void:
+	# limpiar restos por las dudas
+	for n in enemy_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	enemy_nodes.clear()
+
+	# crear nodos a partir de los datos en `enemies`
+	for e in enemies:
+		var n: Enemy = EnemyScene.instantiate()
+		add_child(n)
+		n.set_cell(e["pos"], cell_size, false)  # colocación inicial sin animación
+		enemy_nodes.append(n)
+
+	# sincronizar y sólidos A*
+	_sync_enemy_sprites(animate)
+	_update_astar_solid_tiles()
+	_push_enemy_hp_to_hud()
+	queue_redraw()
 
 func _on_viewport_resized() -> void:
 	_layout_board()
@@ -502,6 +529,8 @@ func _on_victory() -> void:
 	await get_tree().create_timer(1.0).timeout
 	RunState.next_level()
 	outcome = Outcome.NONE
+	if hud:
+		hud.hide_end_banner()
 	await _build_level_from_runstate()
 
 func _goto_level2() -> void:
@@ -525,6 +554,8 @@ func _input(event: InputEvent) -> void:
 			if (event is InputEventMouseButton and not event.pressed) or (event is InputEventKey and event.pressed):
 				RunState.reset_run()
 				outcome = Outcome.NONE
+				if hud:
+					hud.hide_end_banner()
 				await _build_level_from_runstate()
 		return
 	
@@ -674,6 +705,8 @@ func _player_attack(enemy_index:int) -> void:
 func _end_player_turn() -> void:
 	if _is_ending_turn:
 		return
+	if is_drafting:
+		return
 	_is_ending_turn = true
 	
 	# si ya hay fin de partida, no sigas
@@ -703,6 +736,8 @@ func _end_player_turn() -> void:
 	_is_ending_turn = false
 
 func _enemy_phase() -> void:
+	if is_drafting or phase != Phase.ENEMIES or outcome != Outcome.NONE:
+		return
 	# Procesamos enemigo por enemigo: mover -> pequeña pausa -> atacar (si puede)
 	for i in range(enemies.size()):
 		# si el player ya murió, corta la fase
