@@ -57,6 +57,13 @@ var _sfx: AudioStreamPlayer
 const P_STATS = { "hp": 6, "mv": 1, "atk": 1, "def": 1, "rng": 2 }
 var   E_BASE  = { "hp": 2, "mv": 5, "atk": 4, "def": 4, "rng": 3 } 
 
+const ENEMY_TEX := {
+	"goblin": preload("res://goblin.png"),
+	"orc":    preload("res://orc.png"),
+	"skeleton":    preload("res://skeleton.png"),
+	"spider": preload("res://spider.png"),
+}
+
 var is_rolling_dice := false                # bloquea interacción mientras roda
 
 var astar := AStarGrid2D.new()
@@ -360,19 +367,22 @@ func _build_level_from_runstate() -> void:
 	for p: Vector2i in def["pillars"]:
 		pillars[p] = true
 
+	var level_sprite := String(def.get("enemy_sprite", "goblin"))
+	
 	# --- Enemigos ---
 	enemies.clear()
 	for ei in def["enemies"]:
 		enemies.append({
-			"name": String(ei.get("name","enemy")),
-			"pos": _rc_from_v2i(ei["pos"]),
-			"hp":  E_BASE["hp"],
-			"mv":  E_BASE["mv"],
-			"atk": E_BASE["atk"],
-			"def": E_BASE["def"],
-			"rng": E_BASE["rng"],
-			"max_hp": E_BASE["hp"],
-		})
+		"name": String(ei.get("name","enemy")),
+		"sprite": String(ei.get("sprite", level_sprite)),
+		"pos": _rc_from_v2i(ei["pos"]),
+		"hp":  E_BASE["hp"],
+		"mv":  E_BASE["mv"],
+		"atk": E_BASE["atk"],
+		"def": E_BASE["def"],
+		"rng": E_BASE["rng"],
+		"max_hp": E_BASE["hp"],
+	})
 
 	# --- Nodos enemigos (reset limpio) ---
 	for n in enemy_nodes:
@@ -487,6 +497,21 @@ func _spawn_enemy_nodes(animate: bool = false) -> void:
 		add_child(n)
 		n.set_cell(e["pos"], cell_size, false)  # colocación inicial sin animación
 		enemy_nodes.append(n)
+	
+	# --- aplicar sprite por clave ---
+		var key := String(e.get("sprite", "goblin"))
+		var tex: Texture2D = ENEMY_TEX.get(key, null)
+		if tex:
+			# intenta tomar un Sprite2D hijo llamado "Sprite2D"; si no, busca el primero
+			var spr: Sprite2D = n.get_node_or_null("Sprite2D")
+			if spr == null:
+				# fallback: busca el primer Sprite2D dentro del nodo del enemigo
+				for child in n.get_children():
+					if child is Sprite2D:
+						spr = child
+						break
+			if spr:
+				spr.texture = tex
 
 	# sincronizar y sólidos A*
 	_sync_enemy_sprites(animate)
