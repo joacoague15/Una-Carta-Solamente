@@ -78,6 +78,16 @@ var draft_hovered_die := -1
 var draft_hovered_confirm := false
 var draft_pressed_confirm := false
 
+# NUEVO: REROLL 1 vez por nivel
+var can_reroll := false
+var draft_hovered_reroll := false
+var draft_pressed_reroll := false
+
+# --- REWARD POST-NIVEL ---
+var is_rewarding := false
+var reward_hover := ""   # "hp"|"atk"|"def"|"mv"|"" (para hover)
+var reward_pressed := "" # idem, mientras mouse down
+
 func _roll_dice_final() -> void:
 	draft_dice = [RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6), RunState.rng.randi_range(1,6)]
 	draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
@@ -352,10 +362,10 @@ func _build_level_from_runstate() -> void:
 	# --- Player ---
 	player = {
 		"pos": _rc_from_v2i(def["player_start"]),
-		"hp": RunState.player_hp,          # se mantiene
-		"mv": P_STATS["mv"],
-		"atk": P_STATS["atk"],
-		"def": P_STATS["def"],
+		"hp": RunState.player_hp,                
+		"mv": P_STATS["mv"] + int(RunState.perm.get("mv", 0)),
+		"atk": P_STATS["atk"] + int(RunState.perm.get("atk", 0)),
+		"def": P_STATS["def"] + int(RunState.perm.get("def", 0)),
 		"rng": P_STATS["rng"],
 	}
 
@@ -412,6 +422,11 @@ func _build_level_from_runstate() -> void:
 	moves_left = player["mv"]
 	player_attacked_this_turn = false
 	_is_ending_turn = false
+	
+	# habilitar reroll al empezar cada nivel
+	can_reroll = true
+	draft_selected_die = -1
+	draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
 
 # --- setup ---
 func _ready() -> void:
@@ -545,18 +560,35 @@ func _update_astar_solid_tiles() -> void:
 	for e in enemies:
 		astar.set_point_solid(e["pos"], true)
 		
+func _wait_reward_choice() -> void:
+	while is_rewarding:
+		await get_tree().process_frame
+		
 func _on_victory() -> void:
 	if outcome != Outcome.NONE: return
 	RunState.player_hp = int(player["hp"])
 	outcome = Outcome.VICTORY
+	
+	# Banner + activar UI recompensa
 	if hud and "show_end_banner" in hud:
-		hud.show_end_banner("¡Victoria!", "Cargando siguiente nivel…", Color(0.7,1.0,0.7,1.0))
+		hud.show_end_banner("¡Victoria!", "", Color(0.7,1.0,0.7,1.0))
+		await get_tree().create_timer(0.6).timeout
+		hud.hide_end_banner()
+	
+	is_rewarding = true
+	reward_hover = ""
+	reward_pressed = ""
+	queue_redraw()
+	
+	# Esperar a que el jugador elija
+	await _wait_reward_choice()
+	
 	await get_tree().create_timer(1.0).timeout
 	RunState.next_level()
 	outcome = Outcome.NONE
+	await _build_level_from_runstate()
 	if hud:
 		hud.hide_end_banner()
-	await _build_level_from_runstate()
 
 func _goto_level2() -> void:
 	var path := "res://main2.tscn"
@@ -572,8 +604,66 @@ func _on_defeat() -> void:
 	if hud and "show_end_banner" in hud:
 		hud.show_end_banner("Derrota", "Clic o tecla para reiniciar", Color(1.0,0.6,0.6,1.0))
 
+func _reward_layout() -> Dictionary:
+	var board_size := Vector2(cols * cell_size.x, rows * cell_size.y)
+	var panel_size := Vector2(520, 220)
+	var panel_pos := (board_size - panel_size) * 0.5
+	var panel := Rect2(panel_pos, panel_size)
+
+	var btn_size := Vector2(110, 40)
+	var gap := 14.0
+	var top := panel_pos + Vector2((panel_size.x - (btn_size.x * 4 + gap * 3)) * 0.5, panel_size.y * 0.55)
+
+	return {
+		"panel": panel,
+		"hp":  Rect2(top + Vector2((btn_size.x+gap)*0, 0), btn_size),
+		"atk": Rect2(top + Vector2((btn_size.x+gap)*1, 0), btn_size),
+		"def": Rect2(top + Vector2((btn_size.x+gap)*2, 0), btn_size),
+		"mv":  Rect2(top + Vector2((btn_size.x+gap)*3, 0), btn_size),
+	}
+
+func _handle_reward_hover(local_pos: Vector2) -> void:
+	var L := _reward_layout()
+	var prev := reward_hover
+	reward_hover = ""
+	for k in ["hp","atk","def","mv"]:
+		if (L[k] as Rect2).has_point(local_pos):
+			reward_hover = k
+			break
+	if prev != reward_hover:
+		queue_redraw()
+
+func _handle_reward_press(local_pos: Vector2) -> void:
+	var L := _reward_layout()
+	reward_pressed = ""
+	for k in ["hp","atk","def","mv"]:
+		if (L[k] as Rect2).has_point(local_pos):
+			reward_pressed = k
+			break
+	queue_redraw()
+
+func _handle_reward_release() -> void:
+	if reward_pressed != "":
+		# aplicar recompensa
+		RunState.apply_reward(reward_pressed)
+		is_rewarding = false
+		queue_redraw()
+	reward_pressed = ""
+
 # --- input / turns ---
 func _input(event: InputEvent) -> void:
+	# REWARD UI: si está activa, sólo procesa eso
+	if is_rewarding:
+		if event is InputEventMouseMotion:
+			_handle_reward_hover(to_local(get_viewport().get_mouse_position()))
+		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_handle_reward_press(to_local(get_viewport().get_mouse_position()))
+			else:
+				_handle_reward_release()
+		return
+	
+	# Si estoy en derrota, permito reiniciar y salgo
 	if outcome != Outcome.NONE:
 		if outcome == Outcome.DEFEAT:
 			if (event is InputEventMouseButton and not event.pressed) or (event is InputEventKey and event.pressed):
@@ -890,6 +980,14 @@ func _draft_layout() -> Dictionary:
 		ui_start.y + total_ui_h - button_size.y - confirm_margin.y
 	)
 	var confirm_rect := Rect2(confirm_pos, button_size)
+	
+	# NUEVO: botón REROLL a la izquierda
+	var reroll_pos := Vector2(
+		ui_start.x + confirm_margin.x,
+		ui_start.y + total_ui_h - button_size.y - confirm_margin.y
+	)
+	
+	var reroll_rect := Rect2(reroll_pos, button_size)
 
 	# Panel oscuro que cubre el tablero
 	var panel_rect := Rect2(Vector2.ZERO, board_size)
@@ -898,6 +996,7 @@ func _draft_layout() -> Dictionary:
 		"die_rects": die_rects,
 		"slots": slots,
 		"confirm": confirm_rect,
+		"reroll": reroll_rect,
 		"panel": panel_rect
 }
 
@@ -908,8 +1007,11 @@ func _handle_draft_hover(local_pos: Vector2) -> void:
 	var L := _draft_layout()
 	var old_hovered_die := draft_hovered_die
 	var old_hovered_confirm := draft_hovered_confirm
+	var old_hovered_reroll := draft_hovered_reroll
+	
 	draft_hovered_die = -1
 	draft_hovered_confirm = false
+	draft_hovered_reroll = false
 
 	# Check if mouse is over any die
 	for i in draft_dice.size():
@@ -921,32 +1023,40 @@ func _handle_draft_hover(local_pos: Vector2) -> void:
 	var can_confirm := _all_assigned()
 	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
 		draft_hovered_confirm = true
+		
+	# hover reroll (si está disponible)
+	if can_reroll and (L["reroll"] as Rect2).has_point(local_pos):
+		draft_hovered_reroll = true
 
-	# Redraw if hover state changed
-	if old_hovered_die != draft_hovered_die or old_hovered_confirm != draft_hovered_confirm:
+	if old_hovered_die != draft_hovered_die \
+		or old_hovered_confirm != draft_hovered_confirm \
+		or old_hovered_reroll != draft_hovered_reroll:
 		queue_redraw()
 
 func _handle_draft_press(local_pos: Vector2) -> void:
-	if is_rolling_dice:
-		return
-	
+	if is_rolling_dice: return
 	var L := _draft_layout()
 	var can_confirm := _all_assigned()
-	var old_pressed := draft_pressed_confirm
+	var old_pressed_c := draft_pressed_confirm
+	var old_pressed_r := draft_pressed_reroll
 	draft_pressed_confirm = false
+	draft_pressed_reroll = false
 
-	# Check if pressing confirm button
 	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
 		draft_pressed_confirm = true
 
-	if old_pressed != draft_pressed_confirm:
+	if can_reroll and (L["reroll"] as Rect2).has_point(local_pos):
+		draft_pressed_reroll = true
+
+	if old_pressed_c != draft_pressed_confirm or old_pressed_r != draft_pressed_reroll:
 		queue_redraw()
 
 func _handle_draft_release() -> void:
-	var old_pressed := draft_pressed_confirm
+	var old_pressed_c := draft_pressed_confirm
+	var old_pressed_r := draft_pressed_reroll
 	draft_pressed_confirm = false
-
-	if old_pressed:
+	draft_pressed_reroll = false
+	if old_pressed_c or old_pressed_r:
 		queue_redraw()
 
 func _handle_draft_click(local_pos: Vector2) -> void:
@@ -986,12 +1096,21 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 			queue_redraw()
 			return
 
+	if can_reroll and (L["reroll"] as Rect2).has_point(local_pos):
+		await _roll_dice_anim(0.6)
+		can_reroll = false
+		# reset de asignaciones al re-tirar
+		draft_assign_idx = {"mv": -1, "atk": -1, "def": -1}
+		draft_selected_die = -1
+		queue_redraw()
+		return
+
 	# Click en Confirmar
 	var can_confirm := _all_assigned() and not is_rolling_dice
 	if can_confirm and (L["confirm"] as Rect2).has_point(local_pos):
-		player["mv"]  = P_STATS["mv"]  + draft_dice[draft_assign_idx["mv"]]
-		player["atk"] = P_STATS["atk"] + draft_dice[draft_assign_idx["atk"]]
-		player["def"] = P_STATS["def"] + draft_dice[draft_assign_idx["def"]]
+		player["mv"]  = P_STATS["mv"]  + int(RunState.perm.get("mv",0))  + draft_dice[draft_assign_idx["mv"]]
+		player["atk"] = P_STATS["atk"] + int(RunState.perm.get("atk",0)) + draft_dice[draft_assign_idx["atk"]]
+		player["def"] = P_STATS["def"] + int(RunState.perm.get("def",0)) + draft_dice[draft_assign_idx["def"]]
 		player["rng"] = P_STATS["rng"]
 
 		moves_left = player["mv"]
@@ -1002,7 +1121,7 @@ func _handle_draft_click(local_pos: Vector2) -> void:
 		_update_astar_solid_tiles()
 		_sync_player_sprite()
 		queue_redraw()
-		_maybe_auto_end_turn()
+		await _maybe_auto_end_turn()
 		return
 
 func _draw_draft_ui() -> void:
@@ -1130,6 +1249,24 @@ func _draw_draft_ui() -> void:
 			var cx := rc.position.x + (rc.size.x - csize.x) * 0.5
 			var cy := rc.position.y + (rc.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs)
 			draw_string(font, Vector2(cx, cy), ctxt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+		
+		# ---- REROLL (si disponible) ----
+		if can_reroll and not is_rolling_dice:
+			var rr: Rect2 = L["reroll"]
+			var rbg
+			if draft_pressed_reroll:
+				rbg = Color(0.2,0.2,0.2,1)
+			else:
+				if draft_hovered_reroll:
+					rbg = Color(0.15,0.15,0.15,1)
+				else:
+					rbg = Color(0,0,0,1)
+			
+			draw_rect(rr, rbg, true)
+			draw_rect(rr, Color(1,1,1,1), false, 2.0)
+			var rtxt := "Re-tirar"
+			var rsize := font.get_string_size(rtxt, fs)
+			draw_string(font, Vector2(rr.position.x + (rr.size.x - rsize.x) * 0.5, rr.position.y + (rr.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs)), rtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 # --- drawing ---
 func _draw() -> void:
@@ -1151,6 +1288,55 @@ func _draw() -> void:
 			draw_texture_rect(pillar_texture, dst, false)
 		else:
 			draw_rect(cell_rect, Color(0.35, 0.35, 0.4, 1.0), true)
+			
+	# HUD de recompensa encima de todo
+	if is_rewarding:
+		var L := _reward_layout()
+		# oscurecer
+		draw_rect(Rect2(Vector2.ZERO, Vector2(cols * cell_size.x, rows * cell_size.y)), Color(0,0,0,0.45), true)
+		# panel
+		draw_rect(L["panel"], Color(0,0,0,1), true)
+		draw_rect(L["panel"], Color(1,1,1,1), false, 2.0)
+
+		var font := ThemeDB.fallback_font
+		var title := "Elegí una mejora"
+		var fs := 20
+		var tsize := font.get_string_size(title, fs)
+		var center = L["panel"].position + Vector2(L["panel"].size.x * 0.5, L["panel"].size.y * 0.28)
+		draw_string(font, center - Vector2(tsize.x * 0.5, -font.get_ascent(fs)), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
+
+		# botones
+		for k in ["hp","atk","def","mv"]:
+			var r: Rect2 = L[k]
+			var hovered = (reward_hover == k)
+			var pressed = (reward_pressed == k)
+			
+			var bg: Color
+			if pressed:
+				bg = Color(0.2, 0.2, 0.2, 1)
+			elif hovered:
+				bg = Color(0.15, 0.15, 0.15, 1)
+			else:
+				bg = Color(0, 0, 0, 1)
+			
+		
+			draw_rect(r, bg, true)
+			draw_rect(r, Color(1,1,1,1), false, 2.0)
+			var label := ""
+			match k:
+				"hp":
+					label = "HP +1"
+				"atk":
+					label = "ATK +1 (perma)"
+				"def":
+					label = "DEF +1 (perma)"
+				"mv":
+					label = "MV +1 (perma)"
+				_:
+					label = ""
+			var lsize := font.get_string_size(label, fs)
+			var lpos := Vector2(r.position.x + (r.size.x - lsize.x) * 0.5, r.position.y + (r.size.y - font.get_height(fs)) * 0.5 + font.get_ascent(fs))
+			draw_string(font, lpos, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1,1,1,1))
 
 	# UI de dados encima
 	if is_drafting:
@@ -1158,6 +1344,8 @@ func _draw() -> void:
 		
 	# HUD de HP de enemigos (siempre encima)
 	_draw_enemy_hp_hud()
+	
+	
 		
 func _draw_stats_hud() -> void:
 	var board_w := float(cols * cell_size.x)

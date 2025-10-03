@@ -6,6 +6,10 @@ var level := 1
 var player_hp := 6  # se persiste entre niveles
 var rng := RandomNumberGenerator.new()
 
+var perm := {"atk": 0, "def": 0, "mv": 0}
+
+var max_hp := 99
+
 # Definición de niveles (enemigos, pilares, posiciones, stats por nivel)
 const LEVELS := {
 	1: {
@@ -30,22 +34,23 @@ const LEVELS := {
 		],
 	},
 	3: {
-		"player_start": Vector2i(0, 4),
+		"player_start": Vector2i(0, 3),
 		"pillars": [Vector2i(1, 1), Vector2i(3, 1), Vector2i(1, 3)],
 		# Stats pedidos: 3 hp, 4 mv, 5 atk, 4 def, 4 rng
 		"enemy_base": {"hp": 5, "mv": 3, "atk": 7, "def": 7, "rng": 2},
 		"enemy_sprite": "orc",
 		"enemies": [
-			{"name":"orc1","pos": Vector2i(3, 1)},
+			{"name":"orc 1","pos": Vector2i(3, 0)},
 		],
 	},
 	4: {
-		"player_start": Vector2i(4, 4),
-		"pillars": [Vector2i(1, 1), Vector2i(1, 2), Vector2i(4, 2)],
+		"player_start": Vector2i(3, 4),
+		"pillars": [Vector2i(1, 1), Vector2i(1, 2), Vector2i(3, 2)],
 		# Stats pedidos: 3 hp, 4 mv, 5 atk, 4 def, 4 rng
 		"enemy_base": {"hp": 5, "mv": 5, "atk": 5, "def": 5, "rng": 5},
+		"enemy_sprite": "spider",
 		"enemies": [
-			{"name":"orc1","pos": Vector2i(1, 0)},
+			{"name":"spider 1","pos": Vector2i(1, 0)},
 		],
 	},
 	5: {
@@ -68,9 +73,19 @@ func reset_run() -> void:
 	initialized = true
 	level = 1
 	player_hp = 6
+	perm = {"atk": 0, "def": 0, "mv": 0}
 
 func next_level() -> void:
 	level += 1
 
 func get_level_def(l:int) -> Dictionary:
 	return LEVELS.get(l, LEVELS[1])
+	
+func apply_reward(kind: String) -> void:
+	match kind:
+		"hp":
+			player_hp = min(player_hp + 1, max_hp)
+		"atk", "def", "mv":
+			perm[kind] = int(perm.get(kind, 0)) + 1
+		_:
+			pass

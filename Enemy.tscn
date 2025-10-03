@@ -3,7 +3,6 @@
 [ext_resource type="Script" path="res://enemy.gd" id="1_2ytyp"]
 
 [sub_resource type="CompressedTexture2D" id="CompressedTexture2D_40dsu"]
-load_path = "res://.godot/imported/enemy_token.png-09ee98f15040dbee80c7b81856bd6b12.ctex"
 
 [node name="Enemy" type="Node2D"]
 script = ExtResource("1_2ytyp")
